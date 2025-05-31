@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -70,7 +71,26 @@ func (opi *OPItem) HasTenantField() bool {
 }
 
 func (opi *OPItem) Skip() bool {
-	return len(opi.URLs) == 0 || opi.Category != "LOGIN"
+	if opi.Category != "LOGIN" {
+		return true
+	}
+
+	// Don't skip if URLs array has entries
+	if len(opi.URLs) > 0 {
+		return false
+	}
+
+	// Check for URL fields (Type="URL" or Label="website"/"url") if no urls array
+	for _, field := range opi.Fields {
+		fieldLabel := strings.ToLower(field.Label)
+		fieldType := strings.ToUpper(field.Type)
+		if ((fieldLabel == "website" || fieldLabel == "url") || fieldType == "URL") && strings.TrimSpace(field.Value) != "" {
+			return false
+		}
+	}
+
+	// Skip if no URLs found anywhere
+	return true
 }
 
 func (opi *OPItem) GetUsername() string {
@@ -127,6 +147,14 @@ type OPURL struct {
 	Href    string `json:"href"`
 }
 
+// URLSource represents a URL from any source (URLs array or fields)
+type URLSource struct {
+	URL     string
+	Label   string
+	Primary bool
+	Source  string // "urls" or "field"
+}
+
 func check1Password() error {
 	if _, err := safeexec.LookPath("op"); err != nil {
 		return fmt.Errorf("could not find 'op' (1Password CLI). Check if it is installed on your machine")
@@ -142,48 +170,153 @@ func check1Password() error {
 }
 
 func mapToSession(item *OPItem, vaults map[string]string) *session.CumulocitySession {
+	// Use mapToSessions and return the first session for backward compatibility
+	sessions := mapToSessions(item, vaults)
+	if len(sessions) > 0 {
+		return sessions[0]
+	}
+	return nil
+}
+
+// mapToSessions creates one or more sessions from a 1Password item, handling multiple URLs
+func mapToSessions(item *OPItem, vaults map[string]string) []*session.CumulocitySession {
 	// Determine vault name for URI
 	vaultName := item.Vault.Name
 	if name, found := vaults[item.Vault.ID]; found {
 		vaultName = name
 	}
 
-	session := &session.CumulocitySession{
-		SessionURI: fmt.Sprintf("op://%s/%s", vaultName, item.Title),
-		Name:       item.Title,
-		ItemID:     item.ID,
-		ItemName:   item.Title,
-		Username:   item.GetUsername(),
-		Password:   item.GetPassword(),
-		VaultID:    item.Vault.ID,
-		VaultName:  vaultName,
-		TOTPSecret: item.GetTOTPSecret(),
-		Tags:       item.Tags,
-	}
+	// Extract common fields
+	username := item.GetUsername()
+	password := item.GetPassword()
+	totpSecret := item.GetTOTPSecret()
 
-	if len(item.URLs) > 0 {
-		session.Host = item.URLs[0].Href
-	}
-
-	if len(item.Fields) > 0 {
-		for _, field := range item.Fields {
-			if strings.HasPrefix(strings.ToLower(field.Label), "tenant") {
-				session.Tenant = field.Value
-				break
-			}
+	// Extract tenant from custom field
+	var tenant string
+	for _, field := range item.Fields {
+		if strings.HasPrefix(strings.ToLower(field.Label), "tenant") {
+			tenant = field.Value
+			break
 		}
 	}
 
-	if strings.Contains(item.GetUsername(), "/") {
-		parts := strings.SplitN(item.GetUsername(), "/", 2)
+	// Handle tenant/username combination (format: tenant/username)
+	if strings.Contains(username, "/") {
+		parts := strings.SplitN(username, "/", 2)
 		if len(parts) == 2 {
-			if session.Tenant == "" {
-				session.Tenant = parts[0]
+			if tenant == "" {
+				tenant = parts[0]
 			}
-			session.Username = parts[1]
+			username = parts[1]
 		}
 	}
-	return session
+
+	// Collect all URLs from both URLs array and URL fields
+	allURLs := make([]URLSource, 0)
+
+	// Add URLs from the urls array
+	for _, url := range item.URLs {
+		allURLs = append(allURLs, URLSource{
+			URL:     url.Href,
+			Label:   url.Label,
+			Primary: url.Primary,
+			Source:  "urls",
+		})
+	}
+
+	// Add URLs from fields (Type="URL" or Label="website"/"url")
+	for _, field := range item.Fields {
+		fieldLabel := strings.ToLower(field.Label)
+		fieldType := strings.ToUpper(field.Type)
+		if ((fieldLabel == "website" || fieldLabel == "url") || fieldType == "URL") && strings.TrimSpace(field.Value) != "" {
+			allURLs = append(allURLs, URLSource{
+				URL:     field.Value,
+				Label:   field.Label,
+				Primary: false,
+				Source:  "field",
+			})
+		}
+	}
+
+	// If no URLs found anywhere, create one session without URL
+	if len(allURLs) == 0 {
+		cumulocitySession := &session.CumulocitySession{
+			SessionURI: fmt.Sprintf("op://%s/%s", vaultName, item.Title),
+			Name:       item.Title,
+			ItemID:     item.ID,
+			ItemName:   item.Title,
+			Username:   username,
+			Password:   password,
+			Tenant:     tenant,
+			Host:       "",
+			VaultID:    item.Vault.ID,
+			VaultName:  vaultName,
+			TOTPSecret: totpSecret,
+			Tags:       item.Tags,
+		}
+		return []*session.CumulocitySession{cumulocitySession}
+	}
+
+	// Sort URLs to prioritize primary URLs first
+	sort.Slice(allURLs, func(i, j int) bool {
+		return allURLs[i].Primary && !allURLs[j].Primary
+	})
+
+	// Create sessions for all URLs
+	sessions := make([]*session.CumulocitySession, 0, len(allURLs))
+	for i, urlSource := range allURLs {
+		sessionName := item.Title
+		sessionURI := fmt.Sprintf("op://%s/%s", vaultName, item.Title)
+
+		// If multiple URLs, distinguish them in the name and URI
+		if len(allURLs) > 1 {
+			// Check if we need better naming when labels are not unique
+			labelCounts := make(map[string]int)
+			for _, u := range allURLs {
+				labelCounts[u.Label]++
+			}
+
+			// If current URL's label appears multiple times, use hostname for distinction
+			if labelCounts[urlSource.Label] > 1 {
+				// Extract meaningful part from hostname
+				hostname := extractHostname(urlSource.URL)
+				if urlSource.Primary {
+					sessionName = fmt.Sprintf("%s (%s - Primary)", item.Title, hostname)
+					sessionURI = fmt.Sprintf("op://%s/%s#%s-primary", vaultName, item.Title, hostname)
+				} else {
+					sessionName = fmt.Sprintf("%s (%s)", item.Title, hostname)
+					sessionURI = fmt.Sprintf("op://%s/%s#%s", vaultName, item.Title, hostname)
+				}
+			} else if urlSource.Label != "" && urlSource.Label != "website" {
+				// Use label if it's unique and meaningful
+				sessionName = fmt.Sprintf("%s (%s)", item.Title, urlSource.Label)
+				sessionURI = fmt.Sprintf("op://%s/%s#%s", vaultName, item.Title, urlSource.Label)
+			} else if urlSource.Primary {
+				sessionName = fmt.Sprintf("%s (Primary)", item.Title)
+				sessionURI = fmt.Sprintf("op://%s/%s#primary", vaultName, item.Title)
+			} else {
+				sessionName = fmt.Sprintf("%s (URL %d)", item.Title, i+1)
+				sessionURI = fmt.Sprintf("op://%s/%s#url%d", vaultName, item.Title, i+1)
+			}
+		}
+
+		cumulocitySession := &session.CumulocitySession{
+			SessionURI: sessionURI,
+			Name:       sessionName,
+			ItemID:     item.ID,
+			ItemName:   item.Title,
+			Username:   username,
+			Password:   password,
+			Tenant:     tenant,
+			Host:       urlSource.URL,
+			VaultID:    item.Vault.ID,
+			VaultName:  vaultName,
+			TOTPSecret: totpSecret,
+			Tags:       item.Tags,
+		}
+		sessions = append(sessions, cumulocitySession)
+	}
+	return sessions
 }
 
 func isUID(v string) bool {
@@ -320,7 +453,8 @@ func (c *Client) listFromVault(vaultName string) ([]*session.CumulocitySession, 
 	}
 
 	// Get detailed item information including fields
-	detailedItems := make([]OPItem, 0)
+	// Note: We need detailed info for fields, URLs, and other data not available in list
+	detailedItems := make([]OPItem, 0, len(items))
 	for _, item := range items {
 		var detailedItem OPItem
 		detailArgs := []string{
@@ -368,7 +502,9 @@ func (c *Client) listFromVault(vaultName string) ([]*session.CumulocitySession, 
 			}
 		}
 
-		sessions = append(sessions, mapToSession(&item, vaults))
+		// Create sessions for this item (may create multiple sessions for multiple URLs)
+		itemSessions := mapToSessions(&item, vaults)
+		sessions = append(sessions, itemSessions...)
 	}
 
 	return sessions, nil
@@ -485,4 +621,39 @@ func (c *Client) getItemFromVault(vaultIdentifier, itemIdentifier string) (*sess
 
 	session := mapToSession(&item, vaults)
 	return session, nil
+}
+
+// extractHostname extracts a meaningful hostname part for display
+func extractHostname(urlStr string) string {
+	// Remove protocol
+	hostname := strings.TrimPrefix(urlStr, "https://")
+	hostname = strings.TrimPrefix(hostname, "http://")
+
+	// Remove trailing slash and path
+	if idx := strings.Index(hostname, "/"); idx != -1 {
+		hostname = hostname[:idx]
+	}
+
+	// For cases like "integration-tests-01.dtm-dev.stage.c8y.io",
+	// extract the meaningful part before the common domain
+	parts := strings.Split(hostname, ".")
+	if len(parts) > 0 {
+		// Take the first part which is usually the most meaningful
+		firstPart := parts[0]
+
+		// For very long hostnames, try to get a shorter meaningful name
+		if len(firstPart) > 20 {
+			// If it contains hyphens, take parts around them
+			if strings.Contains(firstPart, "-") {
+				subParts := strings.Split(firstPart, "-")
+				if len(subParts) >= 2 {
+					return strings.Join(subParts[:2], "-")
+				}
+			}
+			return firstPart[:20] + "..."
+		}
+		return firstPart
+	}
+
+	return hostname
 }

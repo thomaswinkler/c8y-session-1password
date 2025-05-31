@@ -42,10 +42,17 @@ Structure your 1Password login items with:
 - **Title**: Session name
 - **Username**: Cumulocity username  
 - **Password**: Cumulocity password
-- **Website**: Cumulocity instance URL
+- **Website**: Cumulocity instance URL (or use URLs section for multiple environments)
 - **Tags**: Add `c8y` tag (required for filtering)
 - **Custom Field** (optional): `Tenant` for explicit tenant specification
 - **One-Time Password** (optional): TOTP secret for 2FA
+
+### Multiple URLs Support
+
+Items with multiple URLs in the 1Password URLs section will create separate sessions for each URL:
+- **Primary URLs** are listed first in the picker
+- **URL labels** are used to distinguish between environments (e.g., "Production", "Staging")
+- **Fallback behavior**: If no URLs section exists, falls back to Website/URL fields
 
 ## Configuration
 
