@@ -31,12 +31,12 @@ func (c *Client) parseVaultNames() []string {
 	if c.Vault == "" {
 		return []string{}
 	}
-	
+
 	vaults := strings.Split(c.Vault, ",")
 	for i := range vaults {
 		vaults[i] = strings.TrimSpace(vaults[i])
 	}
-	
+
 	// Remove empty entries
 	filtered := make([]string, 0, len(vaults))
 	for _, vault := range vaults {
@@ -44,7 +44,7 @@ func (c *Client) parseVaultNames() []string {
 			filtered = append(filtered, vault)
 		}
 	}
-	
+
 	return filtered
 }
 
@@ -250,7 +250,7 @@ func (c *Client) List(name ...string) ([]*session.CumulocitySession, error) {
 
 	vaultNames := c.parseVaultNames()
 	allSessions := make([]*session.CumulocitySession, 0)
-	
+
 	// If no vaults specified, search all vaults
 	if len(vaultNames) == 0 {
 		sessions, err := c.listFromVault("")
@@ -269,7 +269,7 @@ func (c *Client) List(name ...string) ([]*session.CumulocitySession, error) {
 			allSessions = append(allSessions, sessions...)
 		}
 	}
-	
+
 	return allSessions, nil
 }
 
@@ -406,11 +406,11 @@ func ParseOPURI(uri string) (vault, item string, err error) {
 
 	vault = parts[0]
 	item = parts[1]
-	
+
 	if vault == "" {
 		return "", "", fmt.Errorf("invalid op:// URI format: vault cannot be empty, got %s", uri)
 	}
-	
+
 	if item == "" {
 		return "", "", fmt.Errorf("invalid op:// URI format: item cannot be empty, got %s", uri)
 	}
@@ -453,7 +453,7 @@ func (c *Client) GetItem(vaultIdentifier, itemIdentifier string) (*session.Cumul
 	}
 
 	// If we get here, the item wasn't found in any vault
-	return nil, fmt.Errorf("item '%s' not found in any of the specified vaults [%s]: %w", 
+	return nil, fmt.Errorf("item '%s' not found in any of the specified vaults [%s]: %w",
 		itemIdentifier, strings.Join(vaultNames, ", "), lastErr)
 }
 
