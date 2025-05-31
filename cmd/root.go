@@ -13,7 +13,7 @@ import (
 
 // Version information - set by build process
 var (
-	Version = "1.0.0-dev"
+	Version = "1.0.0"
 	Commit  = "none"
 	Date    = "unknown"
 )
@@ -34,12 +34,12 @@ Sign in to your 1Password account from the command line
 Environment Variables:
 
  * C8YOP_VAULT - Default vault to search in (can be vault name or ID)
- * C8YOP_TAGS - Default tags to filter by (comma-separated)
+ * C8YOP_TAGS - Default tags to filter by (comma-separated, defaults to "c8y" if not set)
  * C8YOP_ITEM - Default item to retrieve (item ID or name)
  
  For compatibility, CYOP_* variants are also supported:
  * CYOP_VAULT - Fallback for C8YOP_VAULT
- * CYOP_TAGS - Fallback for C8YOP_TAGS  
+ * CYOP_TAGS - Fallback for C8YOP_TAGS (defaults to "c8y" if neither is set)
  * CYOP_ITEM - Fallback for C8YOP_ITEM
 
 Usage modes:
@@ -133,7 +133,8 @@ Usage modes:
 				tags[i] = strings.TrimSpace(tags[i])
 			}
 		}
-		// Default to "c8y" tag if no tags specified
+		// Default to "c8y" tag if no tags specified - this ensures only
+		// Cumulocity-related items are shown in the interactive picker
 		if len(tags) == 0 {
 			tags = []string{"c8y"}
 		}
