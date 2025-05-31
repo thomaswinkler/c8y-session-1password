@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -257,13 +258,9 @@ func mapToSessions(item *OPItem, vaults map[string]string) []*session.Cumulocity
 	}
 
 	// Sort URLs to prioritize primary URLs first
-	for i := 0; i < len(allURLs); i++ {
-		for j := i + 1; j < len(allURLs); j++ {
-			if allURLs[j].Primary && !allURLs[i].Primary {
-				allURLs[i], allURLs[j] = allURLs[j], allURLs[i]
-			}
-		}
-	}
+	sort.Slice(allURLs, func(i, j int) bool {
+		return allURLs[i].Primary && !allURLs[j].Primary
+	})
 
 	// Create sessions for all URLs
 	sessions := make([]*session.CumulocitySession, 0, len(allURLs))
