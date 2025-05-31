@@ -27,7 +27,7 @@ Pre-requisites:
 
  * 1Password CLI (op) - https://developer.1password.com/docs/cli/
 
-Optional sign in to your 1Password account from the command line.
+Sign in to your 1Password account from the command line
 
 	$ op signin
 
@@ -185,4 +185,15 @@ func init() {
 	rootCmd.Flags().String("vault", "", "Vault name or ID (defaults to C8YOP_VAULT or CYOP_VAULT env var)")
 	rootCmd.Flags().String("item", "", "Specific item ID or name to retrieve (defaults to C8YOP_ITEM or CYOP_ITEM env var)")
 	rootCmd.Flags().String("uri", "", "op://vault/item URI to retrieve specific item")
+	rootCmd.AddCommand(versionCmd)
+}
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print version information",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("c8y-session-1password version %s\n", Version)
+		fmt.Printf("Commit: %s\n", Commit)
+		fmt.Printf("Built: %s\n", Date)
+	},
 }
