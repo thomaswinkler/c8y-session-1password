@@ -67,7 +67,8 @@ Examples:
 			}
 		}
 
-		// Default to "c8y" tag if no tags specified
+		// Default to "c8y" tag if no tags specified - this ensures only
+		// Cumulocity-related items are shown in the interactive picker
 		if len(tags) == 0 {
 			tags = []string{"c8y"}
 		}
