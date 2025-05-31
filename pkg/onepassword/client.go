@@ -3,6 +3,7 @@ package onepassword
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os/exec"
 	"regexp"
@@ -408,7 +409,7 @@ func (c *Client) List(name ...string) ([]*session.CumulocitySession, error) {
 
 // listFromVault searches for sessions in a specific vault (or all vaults if empty)
 func (c *Client) listFromVault(vaultName string) ([]*session.CumulocitySession, error) {
-	cmdArgs := []string{
+	listArgs := []string{
 		"item", "list",
 		"--format", "json",
 		"--categories", "Login",
@@ -420,7 +421,7 @@ func (c *Client) listFromVault(vaultName string) ([]*session.CumulocitySession, 
 	if vaultName != "" {
 		if isUID(vaultName) {
 			// Filter by vault id (no additional lookup required)
-			cmdArgs = append(cmdArgs, "--vault", vaultName)
+			listArgs = append(listArgs, "--vault", vaultName)
 		} else {
 			// Filter by vault name/pattern (additional lookup required)
 			vaults, vaultErr = c.ListVaults(vaultName)
@@ -430,7 +431,7 @@ func (c *Client) listFromVault(vaultName string) ([]*session.CumulocitySession, 
 			if len(vaults) > 0 {
 				// Use the first matching vault
 				for vaultID := range vaults {
-					cmdArgs = append(cmdArgs, "--vault", vaultID)
+					listArgs = append(listArgs, "--vault", vaultID)
 					break
 				}
 			}
@@ -440,33 +441,43 @@ func (c *Client) listFromVault(vaultName string) ([]*session.CumulocitySession, 
 	// Add tags filter if specified
 	if len(c.Tags) > 0 {
 		for _, tag := range c.Tags {
-			cmdArgs = append(cmdArgs, "--tags", tag)
+			listArgs = append(listArgs, "--tags", tag)
 		}
 	}
 
-	slog.Debug("Starting", "time", time.Now().Format(time.RFC3339Nano))
+	slog.Debug("Starting optimized fetch", "time", time.Now().Format(time.RFC3339Nano))
 
+	// First get the list of items
 	items := make([]OPItem, 0)
-	err := c.exec(cmdArgs, &items)
+	err := c.exec(listArgs, &items)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get detailed item information including fields
-	// Note: We need detailed info for fields, URLs, and other data not available in list
-	detailedItems := make([]OPItem, 0, len(items))
-	for _, item := range items {
-		var detailedItem OPItem
-		detailArgs := []string{
-			"item", "get", item.ID,
-			"--format", "json",
-		}
-		if err := c.exec(detailArgs, &detailedItem); err != nil {
-			slog.Warn("Failed to get item details", "id", item.ID, "error", err)
-			continue
-		}
-		detailedItems = append(detailedItems, detailedItem)
+	if len(items) == 0 {
+		return []*session.CumulocitySession{}, nil
 	}
+
+	var detailedItems []OPItem
+
+	// Use bulk fetch for multiple items, individual fetch for single item
+	if len(items) > 1 {
+		slog.Debug("Using bulk fetch for multiple items", "count", len(items))
+		detailedItems, err = c.bulkGetItems(listArgs)
+		if err != nil {
+			slog.Warn("Bulk fetch failed, falling back to individual fetches", "error", err)
+			detailedItems, err = c.individualGetItems(items)
+		}
+	} else {
+		slog.Debug("Using individual fetch for single item")
+		detailedItems, err = c.individualGetItems(items)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	slog.Debug("Completed fetch", "count", len(detailedItems), "time", time.Now().Format(time.RFC3339Nano))
 
 	// Get vault names for proper display if not already loaded
 	if vaults == nil {
@@ -508,6 +519,90 @@ func (c *Client) listFromVault(vaultName string) ([]*session.CumulocitySession, 
 	}
 
 	return sessions, nil
+}
+
+// bulkGetItems efficiently fetches detailed item information using piped commands
+// This eliminates N+1 queries by using: op item list ... | op item get -
+func (c *Client) bulkGetItems(listArgs []string) ([]OPItem, error) {
+	if err := check1Password(); err != nil {
+		return nil, err
+	}
+
+	// Create the list command
+	listCmd := exec.Command("op", listArgs...)
+
+	// Create the get command that reads from list output
+	getCmd := exec.Command("op", "item", "get", "-", "--format", "json")
+
+	// Connect the commands via pipe
+	pipe, err := listCmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pipe: %w", err)
+	}
+
+	getCmd.Stdin = pipe
+
+	// Start the list command
+	if err := listCmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start list command: %w", err)
+	}
+
+	// Get the output from the get command
+	output, err := getCmd.Output()
+	if err != nil {
+		// Make sure to wait for list command to finish
+		_ = listCmd.Wait()
+		return nil, fmt.Errorf("failed to get detailed items: %w", err)
+	}
+
+	// Wait for list command to finish
+	if err := listCmd.Wait(); err != nil {
+		return nil, fmt.Errorf("list command failed: %w", err)
+	}
+
+	// Parse multiple JSON objects from the output
+	// The output contains multiple pretty-printed JSON objects
+	outputStr := strings.TrimSpace(string(output))
+	if outputStr == "" {
+		return []OPItem{}, nil
+	}
+
+	// Use a JSON decoder to parse multiple JSON objects
+	items := make([]OPItem, 0)
+	decoder := json.NewDecoder(strings.NewReader(outputStr))
+
+	for {
+		var item OPItem
+		if err := decoder.Decode(&item); err != nil {
+			if err == io.EOF {
+				break // End of input
+			}
+			// Skip invalid JSON and continue
+			slog.Warn("Failed to parse JSON object", "error", err)
+			continue
+		}
+		items = append(items, item)
+	}
+
+	return items, nil
+}
+
+// individualGetItems fetches detailed information for items one by one (fallback method)
+func (c *Client) individualGetItems(items []OPItem) ([]OPItem, error) {
+	detailedItems := make([]OPItem, 0, len(items))
+	for _, item := range items {
+		var detailedItem OPItem
+		detailArgs := []string{
+			"item", "get", item.ID,
+			"--format", "json",
+		}
+		if err := c.exec(detailArgs, &detailedItem); err != nil {
+			slog.Warn("Failed to get item details", "id", item.ID, "error", err)
+			continue
+		}
+		detailedItems = append(detailedItems, detailedItem)
+	}
+	return detailedItems, nil
 }
 
 func GetTOTPCode(secret string, t time.Time) (string, error) {
