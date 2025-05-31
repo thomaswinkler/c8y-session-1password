@@ -1,0 +1,22 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck      # Check for unchecked errors
+    - govet         # Vet examines Go source code and reports suspicious constructs  
+    - ineffassign   # Detects when assignments to existing variables are not used
+    - staticcheck   # Set of rules from staticcheck
+    - unused        # Checks Go code for unused constants, variables, functions and types
+    - misspell      # Finds commonly misspelled English words
+
+formatters:
+  enable:
+    - gofmt         # Standard Go formatting
+    - goimports     # Updates Go import lines
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+run:
+  timeout: 5m

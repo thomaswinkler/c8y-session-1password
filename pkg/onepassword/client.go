@@ -236,7 +236,9 @@ func (c *Client) exec(args []string, data any) error {
 	parseErr := json.NewDecoder(stdout).Decode(data)
 
 	// wait for command to finish in background
-	go op.Wait()
+	go func() {
+		_ = op.Wait() // ignore error as we already have the data
+	}()
 
 	return parseErr
 }

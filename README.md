@@ -1,5 +1,10 @@
 # c8y-session-1password
 
+[![Test](https://github.com/thomaswinkler/c8y-session-1password/actions/workflows/test.yml/badge.svg)](https://github.com/thomaswinkler/c8y-session-1password/actions/workflows/test.yml)
+[![Release](https://github.com/thomaswinkler/c8y-session-1password/actions/workflows/release.yml/badge.svg)](https://github.com/thomaswinkler/c8y-session-1password/actions/workflows/release.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/thomaswinkler/c8y-session-1password)](https://goreportcard.com/report/github.com/thomaswinkler/c8y-session-1password)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A session provider for [go-c8y-cli](https://github.com/reubenmiller/go-c8y-cli) that integrates with 1Password for storing and retrieving Cumulocity IoT session credentials.
 
 ## Features
@@ -19,16 +24,33 @@ A session provider for [go-c8y-cli](https://github.com/reubenmiller/go-c8y-cli) 
 
 ## Installation
 
+### Using Go Install
+
 ```bash
 go install github.com/thomaswinkler/c8y-session-1password@latest
 ```
 
-Or build from source:
+**Note**: Make sure your Go bin directory is in your PATH. Add this to your shell profile if needed:
+
+```bash
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+Then reload your shell:
+```bash
+source ~/.zshrc  # or ~/.bashrc, ~/.bash_profile
+```
+
+### Download Pre-built Binaries
+
+Download the latest release from [GitHub Releases](https://github.com/thomaswinkler/c8y-session-1password/releases).
+
+### Build from Source
 
 ```bash
 git clone https://github.com/thomaswinkler/c8y-session-1password.git
 cd c8y-session-1password
-go build -o c8y-session-1password .
+make build
 ```
 
 ## Usage
@@ -318,14 +340,39 @@ c8y-prod     # Direct to production environment
 
 ## Development
 
+### Prerequisites
+- Go 1.21 or later
+- golangci-lint (for linting)
+- make (optional, for build automation)
+
 ### Building
 ```bash
-go build -o c8y-session-1password .
+make build
 ```
 
 ### Testing
 ```bash
-go test ./...
+make test
+```
+
+### Linting
+```bash
+make lint
+```
+
+### Coverage
+```bash
+make coverage
+```
+
+### Cross-platform builds
+```bash
+make build-all
+```
+
+### Installing from source
+```bash
+make install
 ```
 
 ## Related Projects
