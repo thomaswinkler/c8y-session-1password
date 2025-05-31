@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/thomaswinkler/c8y-session-1password/pkg/core"
 	"github.com/thomaswinkler/c8y-session-1password/pkg/core/picker"
 	"github.com/thomaswinkler/c8y-session-1password/pkg/onepassword"
 )
@@ -104,40 +105,14 @@ Usage modes:
 			}
 
 			// Get TOTP if available
-			if session.TOTPSecret != "" {
-				totp, totpErr := onepassword.GetTOTPCodeFromSecret(session.TOTPSecret)
-				if totpErr == nil {
-					session.TOTP = totp
-				}
-			}
+			populateTOTP(session)
 
-			out, err := json.MarshalIndent(session, "", "  ")
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%s\n", out)
-			return nil
+			return outputSession(session)
 		}
 
 		// If no specific item is requested, fall back to interactive list
-		// Get default tags
-		var tags []string
-		if envTags := os.Getenv("C8YOP_TAGS"); envTags != "" {
-			tags = strings.Split(envTags, ",")
-			for i := range tags {
-				tags[i] = strings.TrimSpace(tags[i])
-			}
-		} else if envTags := os.Getenv("CYOP_TAGS"); envTags != "" { // Fallback for compatibility
-			tags = strings.Split(envTags, ",")
-			for i := range tags {
-				tags[i] = strings.TrimSpace(tags[i])
-			}
-		}
-		// Default to "c8y" tag if no tags specified - this ensures only
-		// Cumulocity-related items are shown in the interactive picker
-		if len(tags) == 0 {
-			tags = []string{"c8y"}
-		}
+		// Get tags using helper function
+		tags := parseTags("")
 
 		client := onepassword.NewClient(vault, tags...)
 		sessions, err := client.List()
@@ -151,26 +126,10 @@ Usage modes:
 			return err
 		}
 
-		// Check if TOTP secret is present and calc next code
-		for _, s := range sessions {
-			if session.ItemID == s.ItemID {
-				session.Password = s.Password
-				if s.TOTPSecret != "" {
-					totp, totpErr := onepassword.GetTOTPCodeFromSecret(s.TOTPSecret)
-					if totpErr == nil {
-						session.TOTP = totp
-					}
-					break
-				}
-			}
-		}
+		// Populate session details and TOTP from the full session list
+		populateSessionFromList(session, sessions)
 
-		out, err := json.MarshalIndent(session, "", "  ")
-		if err != nil {
-			return err
-		}
-		fmt.Printf("%s\n", out)
-		return nil
+		return outputSession(session)
 	},
 }
 
@@ -196,4 +155,64 @@ var versionCmd = &cobra.Command{
 		fmt.Printf("Commit: %s\n", Commit)
 		fmt.Printf("Built: %s\n", Date)
 	},
+}
+
+// Helper function to populate TOTP for a session
+func populateTOTP(session *core.CumulocitySession) {
+	if session.TOTPSecret != "" {
+		totp, err := onepassword.GetTOTPCodeFromSecret(session.TOTPSecret)
+		if err == nil {
+			session.TOTP = totp
+		}
+	}
+}
+
+// Helper function to find and populate session details from list
+func populateSessionFromList(targetSession *core.CumulocitySession, allSessions []*core.CumulocitySession) {
+	for _, s := range allSessions {
+		if targetSession.ItemID == s.ItemID {
+			targetSession.Password = s.Password
+			populateTOTP(targetSession)
+			break
+		}
+	}
+}
+
+// Helper function to parse tags from environment variables or command line
+func parseTags(flagValue string) []string {
+	var tags []string
+
+	if flagValue != "" {
+		tags = strings.Split(flagValue, ",")
+		for i := range tags {
+			tags[i] = strings.TrimSpace(tags[i])
+		}
+	} else if envTags := os.Getenv("C8YOP_TAGS"); envTags != "" {
+		tags = strings.Split(envTags, ",")
+		for i := range tags {
+			tags[i] = strings.TrimSpace(tags[i])
+		}
+	} else if envTags := os.Getenv("CYOP_TAGS"); envTags != "" { // Fallback for compatibility
+		tags = strings.Split(envTags, ",")
+		for i := range tags {
+			tags[i] = strings.TrimSpace(tags[i])
+		}
+	}
+
+	// Default to "c8y" tag if no tags specified
+	if len(tags) == 0 {
+		tags = []string{"c8y"}
+	}
+
+	return tags
+}
+
+// Helper function to output session as JSON
+func outputSession(session *core.CumulocitySession) error {
+	out, err := json.MarshalIndent(session, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s\n", out)
+	return nil
 }

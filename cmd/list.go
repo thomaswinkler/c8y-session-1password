@@ -1,10 +1,7 @@
 package cmd
 
 import (
-	"encoding/json"
-	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/thomaswinkler/c8y-session-1password/pkg/core/picker"
@@ -49,29 +46,8 @@ Examples:
 			}
 		}
 
-		var tags []string
-		if tagsFlag != "" {
-			tags = strings.Split(tagsFlag, ",")
-			for i := range tags {
-				tags[i] = strings.TrimSpace(tags[i])
-			}
-		} else if envTags := os.Getenv("C8YOP_TAGS"); envTags != "" {
-			tags = strings.Split(envTags, ",")
-			for i := range tags {
-				tags[i] = strings.TrimSpace(tags[i])
-			}
-		} else if envTags := os.Getenv("CYOP_TAGS"); envTags != "" { // Fallback for compatibility
-			tags = strings.Split(envTags, ",")
-			for i := range tags {
-				tags[i] = strings.TrimSpace(tags[i])
-			}
-		}
-
-		// Default to "c8y" tag if no tags specified - this ensures only
-		// Cumulocity-related items are shown in the interactive picker
-		if len(tags) == 0 {
-			tags = []string{"c8y"}
-		}
+		// Get tags using helper function
+		tags := parseTags(tagsFlag)
 
 		client := onepassword.NewClient(vault, tags...)
 		sessions, err := client.List()
@@ -85,26 +61,10 @@ Examples:
 			return err
 		}
 
-		// Check if TOTP secret is present and calc next code
-		for _, s := range sessions {
-			if session.ItemID == s.ItemID {
-				session.Password = s.Password
-				if s.TOTPSecret != "" {
-					totp, totpErr := onepassword.GetTOTPCodeFromSecret(s.TOTPSecret)
-					if totpErr == nil {
-						session.TOTP = totp
-					}
-					break
-				}
-			}
-		}
+		// Populate session details and TOTP from the full session list
+		populateSessionFromList(session, sessions)
 
-		out, err := json.MarshalIndent(session, "", "  ")
-		if err != nil {
-			return err
-		}
-		fmt.Printf("%s\n", out)
-		return nil
+		return outputSession(session)
 	},
 }
 

@@ -13,7 +13,7 @@ import (
 
 	"github.com/cli/safeexec"
 	"github.com/pquerna/otp/totp"
-	session "github.com/thomaswinkler/c8y-session-1password/pkg/core"
+	"github.com/thomaswinkler/c8y-session-1password/pkg/core"
 )
 
 type Client struct {
@@ -81,11 +81,9 @@ func (opi *OPItem) Skip() bool {
 		return false
 	}
 
-	// Check for URL fields (Type="URL" or Label="website"/"url") if no urls array
+	// Check for URL fields if no urls array
 	for _, field := range opi.Fields {
-		fieldLabel := strings.ToLower(field.Label)
-		fieldType := strings.ToUpper(field.Type)
-		if ((fieldLabel == "website" || fieldLabel == "url") || fieldType == "URL") && strings.TrimSpace(field.Value) != "" {
+		if isURLField(field) {
 			return false
 		}
 	}
@@ -95,30 +93,18 @@ func (opi *OPItem) Skip() bool {
 }
 
 func (opi *OPItem) GetUsername() string {
-	for _, field := range opi.Fields {
-		if field.ID == "username" {
-			return field.Value
-		}
-	}
-	return ""
+	fields := opi.extractFields()
+	return fields.username
 }
 
 func (opi *OPItem) GetPassword() string {
-	for _, field := range opi.Fields {
-		if field.ID == "password" {
-			return field.Value
-		}
-	}
-	return ""
+	fields := opi.extractFields()
+	return fields.password
 }
 
 func (opi *OPItem) GetTOTPSecret() string {
-	for _, field := range opi.Fields {
-		if field.Type == "OTP" {
-			return field.TOTPDetails.Secret
-		}
-	}
-	return ""
+	fields := opi.extractFields()
+	return fields.totpSecret
 }
 
 // OPField 1Password custom fields
@@ -170,53 +156,65 @@ func check1Password() error {
 	return nil
 }
 
-func mapToSession(item *OPItem, vaults map[string]string) *session.CumulocitySession {
-	// Use mapToSessions and return the first session for backward compatibility
-	sessions := mapToSessions(item, vaults)
-	if len(sessions) > 0 {
-		return sessions[0]
-	}
-	return nil
+// extractItemFields extracts common fields from a 1Password item
+type itemFields struct {
+	username   string
+	password   string
+	totpSecret string
+	tenant     string
 }
 
-// mapToSessions creates one or more sessions from a 1Password item, handling multiple URLs
-func mapToSessions(item *OPItem, vaults map[string]string) []*session.CumulocitySession {
-	// Determine vault name for URI
-	vaultName := item.Vault.Name
-	if name, found := vaults[item.Vault.ID]; found {
-		vaultName = name
-	}
+func (opi *OPItem) extractFields() itemFields {
+	fields := itemFields{}
 
-	// Extract common fields
-	username := item.GetUsername()
-	password := item.GetPassword()
-	totpSecret := item.GetTOTPSecret()
+	for _, field := range opi.Fields {
+		switch field.ID {
+		case "username":
+			fields.username = field.Value
+		case "password":
+			fields.password = field.Value
+		}
 
-	// Extract tenant from custom field
-	var tenant string
-	for _, field := range item.Fields {
-		if strings.HasPrefix(strings.ToLower(field.Label), "tenant") {
-			tenant = field.Value
-			break
+		if field.Type == "OTP" {
+			fields.totpSecret = field.TOTPDetails.Secret
+		}
+
+		// Extract tenant from custom field
+		if strings.HasPrefix(strings.ToLower(field.Label), "tenant") && fields.tenant == "" {
+			fields.tenant = field.Value
 		}
 	}
 
 	// Handle tenant/username combination (format: tenant/username)
-	if strings.Contains(username, "/") {
-		parts := strings.SplitN(username, "/", 2)
+	if strings.Contains(fields.username, "/") {
+		parts := strings.SplitN(fields.username, "/", 2)
 		if len(parts) == 2 {
-			if tenant == "" {
-				tenant = parts[0]
+			if fields.tenant == "" {
+				fields.tenant = parts[0]
 			}
-			username = parts[1]
+			fields.username = parts[1]
 		}
 	}
 
-	// Collect all URLs from both URLs array and URL fields
-	allURLs := make([]URLSource, 0)
+	return fields
+}
+
+// isURLField checks if a field contains a URL
+func isURLField(field OPField) bool {
+	if strings.TrimSpace(field.Value) == "" {
+		return false
+	}
+	fieldLabel := strings.ToLower(field.Label)
+	fieldType := strings.ToUpper(field.Type)
+	return (fieldLabel == "website" || fieldLabel == "url") || fieldType == "URL"
+}
+
+// collectURLs gathers all URLs from both URLs array and URL fields
+func (opi *OPItem) collectURLs() []URLSource {
+	allURLs := make([]URLSource, 0, len(opi.URLs)+len(opi.Fields))
 
 	// Add URLs from the urls array
-	for _, url := range item.URLs {
+	for _, url := range opi.URLs {
 		allURLs = append(allURLs, URLSource{
 			URL:     url.Href,
 			Label:   url.Label,
@@ -226,10 +224,8 @@ func mapToSessions(item *OPItem, vaults map[string]string) []*session.Cumulocity
 	}
 
 	// Add URLs from fields (Type="URL" or Label="website"/"url")
-	for _, field := range item.Fields {
-		fieldLabel := strings.ToLower(field.Label)
-		fieldType := strings.ToUpper(field.Type)
-		if ((fieldLabel == "website" || fieldLabel == "url") || fieldType == "URL") && strings.TrimSpace(field.Value) != "" {
+	for _, field := range opi.Fields {
+		if isURLField(field) {
 			allURLs = append(allURLs, URLSource{
 				URL:     field.Value,
 				Label:   field.Label,
@@ -239,84 +235,133 @@ func mapToSessions(item *OPItem, vaults map[string]string) []*session.Cumulocity
 		}
 	}
 
-	// If no URLs found anywhere, create one session without URL
-	if len(allURLs) == 0 {
-		cumulocitySession := &session.CumulocitySession{
-			SessionURI: fmt.Sprintf("op://%s/%s", vaultName, item.Title),
-			Name:       item.Title,
-			ItemID:     item.ID,
-			ItemName:   item.Title,
-			Username:   username,
-			Password:   password,
-			Tenant:     tenant,
-			Host:       "",
-			VaultID:    item.Vault.ID,
-			VaultName:  vaultName,
-			TOTPSecret: totpSecret,
-			Tags:       item.Tags,
-		}
-		return []*session.CumulocitySession{cumulocitySession}
-	}
-
 	// Sort URLs to prioritize primary URLs first
 	sort.Slice(allURLs, func(i, j int) bool {
 		return allURLs[i].Primary && !allURLs[j].Primary
 	})
 
-	// Create sessions for all URLs
-	sessions := make([]*session.CumulocitySession, 0, len(allURLs))
-	for i, urlSource := range allURLs {
-		sessionName := item.Title
-		sessionURI := fmt.Sprintf("op://%s/%s", vaultName, item.Title)
+	return allURLs
+}
 
-		// If multiple URLs, distinguish them in the name and URI
-		if len(allURLs) > 1 {
-			// Check if we need better naming when labels are not unique
-			labelCounts := make(map[string]int)
-			for _, u := range allURLs {
-				labelCounts[u.Label]++
-			}
-
-			// If current URL's label appears multiple times, use hostname for distinction
-			if labelCounts[urlSource.Label] > 1 {
-				// Extract meaningful part from hostname
-				hostname := extractHostname(urlSource.URL)
-				if urlSource.Primary {
-					sessionName = fmt.Sprintf("%s (%s - Primary)", item.Title, hostname)
-					sessionURI = fmt.Sprintf("op://%s/%s#%s-primary", vaultName, item.Title, hostname)
-				} else {
-					sessionName = fmt.Sprintf("%s (%s)", item.Title, hostname)
-					sessionURI = fmt.Sprintf("op://%s/%s#%s", vaultName, item.Title, hostname)
-				}
-			} else if urlSource.Label != "" && urlSource.Label != "website" {
-				// Use label if it's unique and meaningful
-				sessionName = fmt.Sprintf("%s (%s)", item.Title, urlSource.Label)
-				sessionURI = fmt.Sprintf("op://%s/%s#%s", vaultName, item.Title, urlSource.Label)
-			} else if urlSource.Primary {
-				sessionName = fmt.Sprintf("%s (Primary)", item.Title)
-				sessionURI = fmt.Sprintf("op://%s/%s#primary", vaultName, item.Title)
-			} else {
-				sessionName = fmt.Sprintf("%s (URL %d)", item.Title, i+1)
-				sessionURI = fmt.Sprintf("op://%s/%s#url%d", vaultName, item.Title, i+1)
-			}
-		}
-
-		cumulocitySession := &session.CumulocitySession{
-			SessionURI: sessionURI,
-			Name:       sessionName,
-			ItemID:     item.ID,
-			ItemName:   item.Title,
-			Username:   username,
-			Password:   password,
-			Tenant:     tenant,
-			Host:       urlSource.URL,
-			VaultID:    item.Vault.ID,
-			VaultName:  vaultName,
-			TOTPSecret: totpSecret,
-			Tags:       item.Tags,
-		}
-		sessions = append(sessions, cumulocitySession)
+// buildSessionName creates an appropriate name for a session based on URL source and count
+func buildSessionName(item *OPItem, urlSource URLSource, urlIndex int, totalURLs int, labelCounts map[string]int) string {
+	if totalURLs == 1 {
+		return item.Title
 	}
+
+	// If current URL's label appears multiple times, use hostname for distinction
+	if labelCounts[urlSource.Label] > 1 {
+		hostname := extractHostname(urlSource.URL)
+		if urlSource.Primary {
+			return fmt.Sprintf("%s (%s - Primary)", item.Title, hostname)
+		}
+		return fmt.Sprintf("%s (%s)", item.Title, hostname)
+	}
+
+	if urlSource.Label != "" && urlSource.Label != "website" {
+		return fmt.Sprintf("%s (%s)", item.Title, urlSource.Label)
+	}
+
+	if urlSource.Primary {
+		return fmt.Sprintf("%s (Primary)", item.Title)
+	}
+
+	return fmt.Sprintf("%s (URL %d)", item.Title, urlIndex+1)
+}
+
+// buildSessionURI creates an appropriate URI for a session
+func buildSessionURI(vaultName, itemTitle string, urlSource URLSource, urlIndex int, totalURLs int, labelCounts map[string]int) string {
+	baseURI := fmt.Sprintf("op://%s/%s", vaultName, itemTitle)
+	if totalURLs == 1 {
+		return baseURI
+	}
+
+	var fragment string
+	if labelCounts[urlSource.Label] > 1 {
+		hostname := extractHostname(urlSource.URL)
+		if urlSource.Primary {
+			fragment = hostname + "-primary"
+		} else {
+			fragment = hostname
+		}
+	} else if urlSource.Label != "" && urlSource.Label != "website" {
+		fragment = urlSource.Label
+	} else if urlSource.Primary {
+		fragment = "primary"
+	} else {
+		fragment = fmt.Sprintf("url%d", urlIndex+1)
+	}
+
+	return fmt.Sprintf("%s#%s", baseURI, fragment)
+}
+
+// createSession builds a CumulocitySession from extracted data
+func createSession(item *OPItem, fields itemFields, vaultName string, urlSource URLSource, sessionName, sessionURI string) *core.CumulocitySession {
+	return &core.CumulocitySession{
+		SessionURI: sessionURI,
+		Name:       sessionName,
+		ItemID:     item.ID,
+		ItemName:   item.Title,
+		Username:   fields.username,
+		Password:   fields.password,
+		Tenant:     fields.tenant,
+		Host:       urlSource.URL,
+		VaultID:    item.Vault.ID,
+		VaultName:  vaultName,
+		TOTPSecret: fields.totpSecret,
+		Tags:       item.Tags,
+	}
+}
+
+func mapToSession(item *OPItem, vaults map[string]string) *core.CumulocitySession {
+	// Use mapToSessions and return the first session for backward compatibility
+	sessions := mapToSessions(item, vaults)
+	if len(sessions) > 0 {
+		return sessions[0]
+	}
+	return nil
+}
+
+// mapToSessions creates one or more sessions from a 1Password item, handling multiple URLs
+func mapToSessions(item *OPItem, vaults map[string]string) []*core.CumulocitySession {
+	// Determine vault name for URI
+	vaultName := item.Vault.Name
+	if name, found := vaults[item.Vault.ID]; found {
+		vaultName = name
+	}
+
+	// Extract all fields at once
+	fields := item.extractFields()
+
+	// Collect all URLs from both sources
+	allURLs := item.collectURLs()
+
+	// If no URLs found anywhere, create one session without URL
+	if len(allURLs) == 0 {
+		emptyURL := URLSource{URL: "", Label: "", Primary: false, Source: "none"}
+		sessionName := buildSessionName(item, emptyURL, 0, 1, nil)
+		sessionURI := buildSessionURI(vaultName, item.Title, emptyURL, 0, 1, nil)
+		session := createSession(item, fields, vaultName, emptyURL, sessionName, sessionURI)
+		result := make([]*core.CumulocitySession, 1)
+		result[0] = session
+		return result
+	}
+
+	// Pre-calculate label counts for naming decisions
+	labelCounts := make(map[string]int)
+	for _, url := range allURLs {
+		labelCounts[url.Label]++
+	}
+
+	// Create sessions for all URLs
+	sessions := make([]*core.CumulocitySession, 0, len(allURLs))
+	for i, urlSource := range allURLs {
+		sessionName := buildSessionName(item, urlSource, i, len(allURLs), labelCounts)
+		sessionURI := buildSessionURI(vaultName, item.Title, urlSource, i, len(allURLs), labelCounts)
+		session := createSession(item, fields, vaultName, urlSource, sessionName, sessionURI)
+		sessions = append(sessions, session)
+	}
+
 	return sessions
 }
 
@@ -377,13 +422,13 @@ func (c *Client) exec(args []string, data any) error {
 	return parseErr
 }
 
-func (c *Client) List(name ...string) ([]*session.CumulocitySession, error) {
+func (c *Client) List(name ...string) ([]*core.CumulocitySession, error) {
 	if err := check1Password(); err != nil {
 		return nil, err
 	}
 
 	vaultNames := c.parseVaultNames()
-	allSessions := make([]*session.CumulocitySession, 0)
+	allSessions := make([]*core.CumulocitySession, 0)
 
 	// If no vaults specified, search all vaults
 	if len(vaultNames) == 0 {
@@ -408,7 +453,7 @@ func (c *Client) List(name ...string) ([]*session.CumulocitySession, error) {
 }
 
 // listFromVault searches for sessions in a specific vault (or all vaults if empty)
-func (c *Client) listFromVault(vaultName string) ([]*session.CumulocitySession, error) {
+func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, error) {
 	listArgs := []string{
 		"item", "list",
 		"--format", "json",
@@ -455,7 +500,7 @@ func (c *Client) listFromVault(vaultName string) ([]*session.CumulocitySession, 
 	}
 
 	if len(items) == 0 {
-		return []*session.CumulocitySession{}, nil
+		return []*core.CumulocitySession{}, nil
 	}
 
 	var detailedItems []OPItem
@@ -488,7 +533,7 @@ func (c *Client) listFromVault(vaultName string) ([]*session.CumulocitySession, 
 		}
 	}
 
-	sessions := make([]*session.CumulocitySession, 0)
+	sessions := make([]*core.CumulocitySession, 0)
 	for _, item := range detailedItems {
 		if item.Skip() {
 			continue
@@ -650,7 +695,7 @@ func ParseOPURI(uri string) (vault, item string, err error) {
 }
 
 // GetItem retrieves a specific item from 1Password by vault and item identifier
-func (c *Client) GetItem(vaultIdentifier, itemIdentifier string) (*session.CumulocitySession, error) {
+func (c *Client) GetItem(vaultIdentifier, itemIdentifier string) (*core.CumulocitySession, error) {
 	if err := check1Password(); err != nil {
 		return nil, err
 	}
@@ -689,7 +734,7 @@ func (c *Client) GetItem(vaultIdentifier, itemIdentifier string) (*session.Cumul
 }
 
 // getItemFromVault retrieves an item from a specific vault (or any vault if empty)
-func (c *Client) getItemFromVault(vaultIdentifier, itemIdentifier string) (*session.CumulocitySession, error) {
+func (c *Client) getItemFromVault(vaultIdentifier, itemIdentifier string) (*core.CumulocitySession, error) {
 	// Build the op item get command
 	args := []string{"item", "get", itemIdentifier, "--format", "json"}
 	if vaultIdentifier != "" {
