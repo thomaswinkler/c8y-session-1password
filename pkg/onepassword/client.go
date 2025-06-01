@@ -274,9 +274,9 @@ func buildSessionName(item *OPItem, urlSource URLSource, urlIndex int, totalURLs
 	return fmt.Sprintf("%s (URL %d)", item.Title, urlIndex+1)
 }
 
-// buildSessionURI creates an appropriate URI for a session
-func buildSessionURI(vaultName, itemTitle string, urlSource URLSource, urlIndex int, totalURLs int, labelCounts map[string]int) string {
-	baseURI := fmt.Sprintf("op://%s/%s", vaultName, itemTitle)
+// buildSessionURI creates an appropriate URI for a session using vault ID and item ID for shorter URIs
+func buildSessionURI(vaultID, itemID string, urlSource URLSource, urlIndex int, totalURLs int, labelCounts map[string]int) string {
+	baseURI := fmt.Sprintf("op://%s/%s", vaultID, itemID)
 	if totalURLs == 1 {
 		return baseURI
 	}
@@ -345,7 +345,7 @@ func mapToSessions(item *OPItem, vaults map[string]string) []*core.CumulocitySes
 	if len(allURLs) == 0 {
 		emptyURL := URLSource{URL: "", Label: "", Primary: false, Source: "none"}
 		sessionName := buildSessionName(item, emptyURL, 0, 1, nil)
-		sessionURI := buildSessionURI(vaultName, item.Title, emptyURL, 0, 1, nil)
+		sessionURI := buildSessionURI(item.Vault.ID, item.ID, emptyURL, 0, 1, nil)
 		session := createSession(item, fields, vaultName, emptyURL, sessionName, sessionURI)
 		result := make([]*core.CumulocitySession, 1)
 		result[0] = session
@@ -362,7 +362,7 @@ func mapToSessions(item *OPItem, vaults map[string]string) []*core.CumulocitySes
 	sessions := make([]*core.CumulocitySession, 0, len(allURLs))
 	for i, urlSource := range allURLs {
 		sessionName := buildSessionName(item, urlSource, i, len(allURLs), labelCounts)
-		sessionURI := buildSessionURI(vaultName, item.Title, urlSource, i, len(allURLs), labelCounts)
+		sessionURI := buildSessionURI(item.Vault.ID, item.ID, urlSource, i, len(allURLs), labelCounts)
 		session := createSession(item, fields, vaultName, urlSource, sessionName, sessionURI)
 		sessions = append(sessions, session)
 	}
@@ -453,6 +453,14 @@ func (c *Client) List(name ...string) ([]*core.CumulocitySession, error) {
 			allSessions = append(allSessions, sessions...)
 		}
 	}
+
+	// Sort sessions by Host URL for better organization
+	sort.Slice(allSessions, func(i, j int) bool {
+		// Normalize URLs for better sorting (remove protocol and trailing slash)
+		normalizedI := core.NormalizeURL(allSessions[i].Host)
+		normalizedJ := core.NormalizeURL(allSessions[j].Host)
+		return normalizedI < normalizedJ
+	})
 
 	return allSessions, nil
 }

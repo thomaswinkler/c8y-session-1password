@@ -5,6 +5,30 @@ import (
 	"strings"
 )
 
+// NormalizeURL removes protocol and trailing slash for better display and sorting
+// Uses robust protocol parsing by splitting on "://" separator
+func NormalizeURL(url string) string {
+	if url == "" {
+		return url
+	}
+
+	// Split on "://" to handle any protocol (http, https, ftp, etc.)
+	parts := strings.Split(url, "://")
+	var normalized string
+	if len(parts) > 1 {
+		// Use the part after the protocol
+		normalized = parts[1]
+	} else {
+		// No protocol found, use the original URL
+		normalized = url
+	}
+
+	// Remove trailing slash
+	normalized = strings.TrimSuffix(normalized, "/")
+
+	return normalized
+}
+
 type CumulocitySession struct {
 	SessionURI string `json:"sessionUri,omitempty"`
 	Name       string `json:"name,omitempty"`
@@ -27,7 +51,9 @@ func (i CumulocitySession) FilterValue() string {
 	return strings.Join([]string{i.SessionURI, i.Host, i.Username}, " ")
 }
 
-func (i CumulocitySession) Title() string { return i.Host }
+func (i CumulocitySession) Title() string {
+	return NormalizeURL(i.Host)
+}
 
 func (i CumulocitySession) Description() string {
 	fields := []string{
@@ -40,11 +66,6 @@ func (i CumulocitySession) Description() string {
 	if i.Tenant != "" {
 		fields = append(fields, ", Tenant=%s")
 		args = append(args, i.Tenant)
-	}
-
-	if i.VaultName != "" {
-		fields = append(fields, ", Vault=%s")
-		args = append(args, i.VaultName)
 	}
 
 	if len(i.Tags) > 0 {
