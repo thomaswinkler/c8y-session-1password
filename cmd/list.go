@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"os"
-
 	"github.com/spf13/cobra"
 	"github.com/thomaswinkler/c8y-session-1password/pkg/core/picker"
 	"github.com/thomaswinkler/c8y-session-1password/pkg/onepassword"
@@ -40,10 +38,7 @@ Examples:
 
 		// Get default values from environment variables
 		if vault == "" {
-			vault = os.Getenv("C8YOP_VAULT")
-			if vault == "" {
-				vault = os.Getenv("CYOP_VAULT") // Fallback for compatibility
-			}
+			vault = getEnvWithFallback("C8YOP_VAULT", "CYOP_VAULT")
 		}
 
 		// Get tags using helper function

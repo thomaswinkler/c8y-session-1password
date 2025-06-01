@@ -68,17 +68,11 @@ Usage modes:
 
 		// Get default values from environment variables
 		if vault == "" {
-			vault = os.Getenv("C8YOP_VAULT")
-			if vault == "" {
-				vault = os.Getenv("CYOP_VAULT") // Fallback for compatibility
-			}
+			vault = getEnvWithFallback("C8YOP_VAULT", "CYOP_VAULT")
 		}
 
 		if item == "" {
-			item = os.Getenv("C8YOP_ITEM")
-			if item == "" {
-				item = os.Getenv("CYOP_ITEM") // Fallback for compatibility
-			}
+			item = getEnvWithFallback("C8YOP_ITEM", "CYOP_ITEM")
 		}
 
 		// Parse op:// URI if provided
@@ -178,25 +172,44 @@ func populateSessionFromList(targetSession *core.CumulocitySession, allSessions 
 	}
 }
 
+// Helper function to get environment variable with fallback compatibility
+func getEnvWithFallback(primary, fallback string) string {
+	if value := os.Getenv(primary); value != "" {
+		return value
+	}
+	return os.Getenv(fallback)
+}
+
+// Helper function to split and trim strings from comma-separated list
+func splitAndTrimString(input string) []string {
+	if input == "" {
+		return nil
+	}
+
+	parts := strings.Split(input, ",")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+
+	// Filter out empty strings
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+
+	return result
+}
+
 // Helper function to parse tags from environment variables or command line
 func parseTags(flagValue string) []string {
 	var tags []string
 
 	if flagValue != "" {
-		tags = strings.Split(flagValue, ",")
-		for i := range tags {
-			tags[i] = strings.TrimSpace(tags[i])
-		}
-	} else if envTags := os.Getenv("C8YOP_TAGS"); envTags != "" {
-		tags = strings.Split(envTags, ",")
-		for i := range tags {
-			tags[i] = strings.TrimSpace(tags[i])
-		}
-	} else if envTags := os.Getenv("CYOP_TAGS"); envTags != "" { // Fallback for compatibility
-		tags = strings.Split(envTags, ",")
-		for i := range tags {
-			tags[i] = strings.TrimSpace(tags[i])
-		}
+		tags = splitAndTrimString(flagValue)
+	} else if envTags := getEnvWithFallback("C8YOP_TAGS", "CYOP_TAGS"); envTags != "" {
+		tags = splitAndTrimString(envTags)
 	}
 
 	// Default to "c8y" tag if no tags specified
