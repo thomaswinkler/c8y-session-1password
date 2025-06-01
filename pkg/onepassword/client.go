@@ -28,13 +28,13 @@ func NewClient(vault string, tags ...string) *Client {
 	}
 }
 
-// parseVaultNames splits a comma-separated vault string and returns a slice of vault names
-func (c *Client) parseVaultNames() []string {
-	if c.Vault == "" {
+// parseVaultNamesFromString splits a comma-separated vault string and returns a slice of vault names
+func parseVaultNamesFromString(vaultStr string) []string {
+	if vaultStr == "" {
 		return []string{}
 	}
 
-	vaults := strings.Split(c.Vault, ",")
+	vaults := strings.Split(vaultStr, ",")
 	for i := range vaults {
 		vaults[i] = strings.TrimSpace(vaults[i])
 	}
@@ -48,6 +48,11 @@ func (c *Client) parseVaultNames() []string {
 	}
 
 	return filtered
+}
+
+// parseVaultNames splits a comma-separated vault string and returns a slice of vault names
+func (c *Client) parseVaultNames() []string {
+	return parseVaultNamesFromString(c.Vault)
 }
 
 // OPItem 1Password item containing the login information
@@ -700,17 +705,8 @@ func (c *Client) GetItem(vaultIdentifier, itemIdentifier string) (*core.Cumuloci
 		return nil, err
 	}
 
-	// Parse vault names if comma-separated
-	vaultNames := []string{}
-	if vaultIdentifier != "" {
-		vaults := strings.Split(vaultIdentifier, ",")
-		for _, vault := range vaults {
-			vault = strings.TrimSpace(vault)
-			if vault != "" {
-				vaultNames = append(vaultNames, vault)
-			}
-		}
-	}
+	// Parse vault names if comma-separated using the helper function
+	vaultNames := parseVaultNamesFromString(vaultIdentifier)
 
 	// If no vaults specified, try without vault filter
 	if len(vaultNames) == 0 {

@@ -143,6 +143,55 @@ func TestParseVaultNames(t *testing.T) {
 	}
 }
 
+func TestParseVaultNamesFromString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "single vault",
+			input:    "vault1",
+			expected: []string{"vault1"},
+		},
+		{
+			name:     "multiple vaults",
+			input:    "vault1,vault2,vault3",
+			expected: []string{"vault1", "vault2", "vault3"},
+		},
+		{
+			name:     "multiple vaults with spaces",
+			input:    "vault1, vault2 , vault3",
+			expected: []string{"vault1", "vault2", "vault3"},
+		},
+		{
+			name:     "empty vault",
+			input:    "",
+			expected: []string{},
+		},
+		{
+			name:     "vault with empty entries",
+			input:    "vault1,,vault2,",
+			expected: []string{"vault1", "vault2"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := parseVaultNamesFromString(test.input)
+			if len(result) != len(test.expected) {
+				t.Errorf("parseVaultNamesFromString() returned %d vaults, expected %d", len(result), len(test.expected))
+				return
+			}
+			for i, expected := range test.expected {
+				if result[i] != expected {
+					t.Errorf("parseVaultNamesFromString()[%d] = %q; expected %q", i, result[i], expected)
+				}
+			}
+		})
+	}
+}
+
 func TestMapToSessions_MultipleURLs(t *testing.T) {
 	item := &OPItem{
 		ID:       "test123",
