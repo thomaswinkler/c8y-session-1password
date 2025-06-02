@@ -49,7 +49,7 @@ func TestCumulocitySession_Description(t *testing.T) {
 		"Username=testuser",
 		"Tenant=testtenant",
 		"Tags=c8y,test",
-		"uri=op://Employee/test-item",
+		"op://Employee/test-item",
 	}
 
 	for _, part := range expectedParts {

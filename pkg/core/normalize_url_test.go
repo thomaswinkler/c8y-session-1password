@@ -72,7 +72,7 @@ func TestNormalizeURL(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := NormalizeURL(tc.input)
+			result := NormalizeDisplayURL(tc.input)
 			if result != tc.expected {
 				t.Errorf("NormalizeURL(%q) = %q; expected %q", tc.input, result, tc.expected)
 			}

@@ -21,7 +21,7 @@ func TestCumulocitySession_Description_NoVault(t *testing.T) {
 		"Username=testuser",
 		"Tenant=testtenant",
 		"Tags=c8y",
-		"uri=op://MyVault/test-item",
+		"op://MyVault/test-item",
 	}
 
 	for _, part := range expectedParts {
@@ -49,7 +49,7 @@ func TestCumulocitySession_Description_Minimal(t *testing.T) {
 	}
 
 	result := session.Description()
-	expected := "Username=user | uri=op://Vault/Item"
+	expected := "Username=user | op://Vault/Item"
 
 	if result != expected {
 		t.Errorf("Description() = %q; expected %q", result, expected)
