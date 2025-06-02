@@ -369,6 +369,11 @@ func (c *Client) List(name ...string) ([]*core.CumulocitySession, error) {
 		for _, vaultName := range vaultNames {
 			sessions, err := c.listFromVault(vaultName)
 			if err != nil {
+				// For single vault, return error immediately
+				// For multiple vaults, continue with others but log the error
+				if len(vaultNames) == 1 {
+					return nil, err
+				}
 				slog.Warn("Failed to search vault", "vault", vaultName, "error", err)
 				continue
 			}
@@ -414,6 +419,10 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 					listArgs = append(listArgs, "--vault", vaultID)
 					break
 				}
+			} else {
+				// Vault specified but not found - return error instead of silently searching all vaults
+				slog.Debug("Vault not found, returning error", "vault", vaultName)
+				return nil, fmt.Errorf("Vault '%s' not found", vaultName)
 			}
 		}
 	}

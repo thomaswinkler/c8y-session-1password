@@ -76,7 +76,7 @@ Examples:
 
 func init() {
 	rootCmd.AddCommand(listCmd)
-	listCmd.Flags().String("vault", "", "Vault name or ID (defaults to C8YOP_VAULT or CYOP_VAULT env var)")
+	listCmd.Flags().String("vault", "", "Vault name or ID (optional - if not provided, searches all vaults; defaults to C8YOP_VAULT or CYOP_VAULT env var)")
 	listCmd.Flags().String("tags", "", "Comma-separated tags to filter by (defaults to C8YOP_TAGS or CYOP_TAGS env var, then 'c8y')")
 	listCmd.Flags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
 }
