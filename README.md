@@ -19,12 +19,17 @@ Or download from [GitHub Releases](https://github.com/thomaswinkler/c8y-session-
 
 ## Integration with go-c8y-cli
 
-**Interactive session picker:**
+**Interactive session picker (searches all vaults):**
 ```bash
 eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)
 ```
 
-**Direct session access:**
+**Direct session access (searches all vaults for item):**
+```bash
+eval $(c8y sessions login --from-cmd "c8y-session-1password --item Production --reveal" --shell auto)
+```
+
+**Direct session access from specific vault:**
 ```bash
 eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Employee --item Production --reveal" --shell auto)
 ```
@@ -34,6 +39,12 @@ eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Employee --i
 export C8YOP_VAULT="Employee"
 export C8YOP_ITEM="Production"
 eval $(c8y sessions login --from-cmd "c8y-session-1password" --reveal --shell auto)
+```
+
+**Searching multiple vaults:**
+```bash
+export C8YOP_VAULT="Employee,Shared"
+eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)
 ```
 
 ## 1Password Setup
@@ -59,19 +70,25 @@ Items with multiple URLs in the 1Password URLs section will create separate sess
 ## Configuration
 
 ### Environment Variables
-- `C8YOP_VAULT` - Default vault(s) to search (comma-separated: `"Employee,Shared"`)
+- `C8YOP_VAULT` - Default vault(s) to search (comma-separated: `"Employee,Shared"`, optional - if not provided, searches all vaults)
 - `C8YOP_TAGS` - Filter tags (defaults to `"c8y"`)
 - `C8YOP_ITEM` - Default item name or ID
 
 ### Command Line Options
 ```bash
-# Interactive picker (passwords obfuscated by default)
+# Interactive picker from all vaults (passwords obfuscated by default)
+c8y-session-1password list
+
+# Interactive picker from specific vault(s) (passwords obfuscated by default)
 c8y-session-1password list --vault "Employee" --tags "c8y,prod"
 
 # Interactive picker with revealed passwords
 c8y-session-1password list --vault "Employee" --tags "c8y,prod" --reveal
 
-# Direct access (passwords obfuscated by default)
+# Direct access from all vaults (vault is optional)
+c8y-session-1password --item "Production"
+
+# Direct access from specific vault (passwords obfuscated by default)
 c8y-session-1password --vault "Employee" --item "Production"
 c8y-session-1password --uri "op://Employee/Production"
 
@@ -100,11 +117,14 @@ This approach prioritizes security by requiring explicit use of `--reveal` when 
 Add these aliases to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.):
 
 ```bash
-# Quick session login with interactive picker
+# Quick session login with interactive picker (searches all vaults)
 alias c8y-op='eval $(c8y sessions login --from-cmd "c8y-session-1password list" --reveal --shell auto)'
 
 # Quick session login with revealed passwords (for debugging)
 alias c8y-op-debug='eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)'
+
+# Direct item access from all vaults
+alias c8y-find='eval $(c8y sessions login --from-cmd "c8y-session-1password --item" --reveal --shell auto)'
 
 # Add other aliases as needed
 alias c8y-xyz-session='eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Shared --item xyz" --reveal --shell auto)'
@@ -115,8 +135,11 @@ alias c8y-xyz-session='eval $(c8y sessions login --from-cmd "c8y-session-1passwo
 For automated environments or when working with specific projects, set these in your shell profile:
 
 ```bash
-# Default configuration
+# Default configuration (searches specific vaults)
 export C8YOP_VAULT="Employee,Shared"
+export C8YOP_TAGS="c8y"
+
+# Alternative: search all vaults (omit C8YOP_VAULT)
 export C8YOP_TAGS="c8y"
 
 # Project-specific configuration (optional)
@@ -126,8 +149,11 @@ export C8YOP_ITEM="MyProject-Dev"
 ### Usage Examples
 
 ```bash
-# Interactive session selection
+# Interactive session selection (searches all vaults)
 c8y-op
+
+# Find specific item across all vaults
+c8y-find Production
 
 # Quick environment switching  
 c8y-xyz-session
