@@ -15,15 +15,21 @@ var listCmd = &cobra.Command{
 This command provides an interactive picker to browse and select from available sessions.
 For direct item retrieval, use the root command with --vault/--item or --uri flags.
 
+By default, sensitive information (passwords, TOTP secrets) is obfuscated in the output.
+Use --reveal to show the actual values.
+
 Examples:
-  # Interactive selection with all sessions
+  # Interactive selection with all sessions (passwords obfuscated)
   c8y-session-1password list
+  
+  # Show passwords and TOTP secrets in output
+  c8y-session-1password list --reveal
   
   # Filter by specific vault
   c8y-session-1password list --vault "Employee"
   
-  # Filter by tags
-  c8y-session-1password list --tags "c8y,production"`,
+  # Filter by tags with revealed passwords
+  c8y-session-1password list --tags "c8y,production" --reveal`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vault, err := cmd.Flags().GetString("vault")
@@ -32,6 +38,11 @@ Examples:
 		}
 
 		tagsFlag, err := cmd.Flags().GetString("tags")
+		if err != nil {
+			return err
+		}
+
+		reveal, err := cmd.Flags().GetBool("reveal")
 		if err != nil {
 			return err
 		}
@@ -59,7 +70,7 @@ Examples:
 		// Populate session details and TOTP from the full session list
 		populateSessionFromList(session, sessions)
 
-		return outputSession(session)
+		return outputSession(session, reveal)
 	},
 }
 
@@ -67,4 +78,5 @@ func init() {
 	rootCmd.AddCommand(listCmd)
 	listCmd.Flags().String("vault", "", "Vault name or ID (defaults to C8YOP_VAULT or CYOP_VAULT env var)")
 	listCmd.Flags().String("tags", "", "Comma-separated tags to filter by (defaults to C8YOP_TAGS or CYOP_TAGS env var, then 'c8y')")
+	listCmd.Flags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
 }

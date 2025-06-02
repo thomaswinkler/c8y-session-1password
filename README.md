@@ -21,7 +21,7 @@ Or download from [GitHub Releases](https://github.com/thomaswinkler/c8y-session-
 
 **Interactive session picker:**
 ```bash
-eval $(c8y sessions login --from-cmd "c8y-session-1password list" --shell auto)
+eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)
 ```
 
 **Direct session access:**
@@ -63,13 +63,24 @@ Items with multiple URLs in the 1Password URLs section will create separate sess
 
 ### Command Line Options
 ```bash
-# Interactive picker
+# Interactive picker (passwords obfuscated by default)
 c8y-session-1password list --vault "Employee" --tags "c8y,prod"
+
+# Interactive picker with revealed passwords
+c8y-session-1password list --vault "Employee" --tags "c8y,prod" --reveal
 
 # Direct access
 c8y-session-1password --vault "Employee" --item "Production"
 c8y-session-1password --uri "op://Employee/Production"
 ```
+
+### Security Features
+
+By default, the `list` command obfuscates sensitive information (passwords, TOTP secrets) in the output to prevent accidental exposure. Use the `--reveal` flag when you need to see the actual values:
+
+- **Default behavior**: Passwords and TOTP secrets are shown as `***`
+- **With `--reveal`**: Shows actual sensitive values
+- **Direct access**: Always reveals passwords (since you're directly requesting a specific item)
 
 ## Shell Integration
 
@@ -80,6 +91,9 @@ Add these aliases to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.):
 ```bash
 # Quick session login with interactive picker
 alias c8y-op='eval $(c8y sessions login --from-cmd "c8y-session-1password list" --shell auto)'
+
+# Quick session login with revealed passwords (for debugging)
+alias c8y-op-debug='eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)'
 
 # Add other aliases as needed
 alias c8y-xyz-session='eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Shared --item xyz" --shell auto)'

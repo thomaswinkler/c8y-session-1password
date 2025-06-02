@@ -104,7 +104,7 @@ Usage modes:
 			// Get TOTP if available
 			populateTOTP(session)
 
-			return outputSession(session)
+			return outputSession(session, true) // Always reveal for direct item access
 		}
 
 		// If no specific item is requested, fall back to interactive list
@@ -124,7 +124,7 @@ Usage modes:
 		// Populate session details and TOTP from the full session list
 		populateSessionFromList(session, sessions)
 
-		return outputSession(session)
+		return outputSession(session, true) // Always reveal for interactive mode from root command
 	},
 }
 
@@ -222,8 +222,24 @@ func parseTags(flagValue string) []string {
 }
 
 // Helper function to output session as JSON
-func outputSession(session *core.CumulocitySession) error {
-	out, err := json.MarshalIndent(session, "", "  ")
+func outputSession(session *core.CumulocitySession, reveal bool) error {
+	// Create a copy of the session to avoid modifying the original
+	outputSession := *session
+
+	// Obfuscate sensitive fields if reveal is false
+	if !reveal {
+		if outputSession.Password != "" {
+			outputSession.Password = "***"
+		}
+		if outputSession.TOTP != "" {
+			outputSession.TOTP = "***"
+		}
+		if outputSession.TOTPSecret != "" {
+			outputSession.TOTPSecret = "***"
+		}
+	}
+
+	out, err := json.MarshalIndent(&outputSession, "", "  ")
 	if err != nil {
 		return err
 	}
