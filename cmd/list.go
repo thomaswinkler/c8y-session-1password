@@ -1,11 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"strings"
-
 	"github.com/spf13/cobra"
 	"github.com/thomaswinkler/c8y-session-1password/pkg/core/picker"
 	"github.com/thomaswinkler/c8y-session-1password/pkg/onepassword"
@@ -20,15 +15,21 @@ var listCmd = &cobra.Command{
 This command provides an interactive picker to browse and select from available sessions.
 For direct item retrieval, use the root command with --vault/--item or --uri flags.
 
+By default, sensitive information (passwords, TOTP secrets) is obfuscated in the output.
+Use --reveal to show the actual values.
+
 Examples:
-  # Interactive selection with all sessions
+  # Interactive selection with all sessions (passwords obfuscated)
   c8y-session-1password list
+  
+  # Show passwords and TOTP secrets in output
+  c8y-session-1password list --reveal
   
   # Filter by specific vault
   c8y-session-1password list --vault "Employee"
   
-  # Filter by tags
-  c8y-session-1password list --tags "c8y,production"`,
+  # Filter by tags with revealed passwords
+  c8y-session-1password list --tags "c8y,production" --reveal`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vault, err := cmd.Flags().GetString("vault")
@@ -41,36 +42,18 @@ Examples:
 			return err
 		}
 
+		reveal, err := cmd.Flags().GetBool("reveal")
+		if err != nil {
+			return err
+		}
+
 		// Get default values from environment variables
 		if vault == "" {
-			vault = os.Getenv("C8YOP_VAULT")
-			if vault == "" {
-				vault = os.Getenv("CYOP_VAULT") // Fallback for compatibility
-			}
+			vault = getEnvWithFallback("C8YOP_VAULT", "CYOP_VAULT")
 		}
 
-		var tags []string
-		if tagsFlag != "" {
-			tags = strings.Split(tagsFlag, ",")
-			for i := range tags {
-				tags[i] = strings.TrimSpace(tags[i])
-			}
-		} else if envTags := os.Getenv("C8YOP_TAGS"); envTags != "" {
-			tags = strings.Split(envTags, ",")
-			for i := range tags {
-				tags[i] = strings.TrimSpace(tags[i])
-			}
-		} else if envTags := os.Getenv("CYOP_TAGS"); envTags != "" { // Fallback for compatibility
-			tags = strings.Split(envTags, ",")
-			for i := range tags {
-				tags[i] = strings.TrimSpace(tags[i])
-			}
-		}
-
-		// Default to "c8y" tag if no tags specified
-		if len(tags) == 0 {
-			tags = []string{"c8y"}
-		}
+		// Get tags using helper function
+		tags := parseTags(tagsFlag)
 
 		client := onepassword.NewClient(vault, tags...)
 		sessions, err := client.List()
@@ -84,26 +67,10 @@ Examples:
 			return err
 		}
 
-		// Check if TOTP secret is present and calc next code
-		for _, s := range sessions {
-			if session.ItemID == s.ItemID {
-				session.Password = s.Password
-				if s.TOTPSecret != "" {
-					totp, totpErr := onepassword.GetTOTPCodeFromSecret(s.TOTPSecret)
-					if totpErr == nil {
-						session.TOTP = totp
-					}
-					break
-				}
-			}
-		}
+		// Populate session details and TOTP from the full session list
+		populateSessionFromList(session, sessions)
 
-		out, err := json.MarshalIndent(session, "", "  ")
-		if err != nil {
-			return err
-		}
-		fmt.Printf("%s\n", out)
-		return nil
+		return outputSession(session, reveal)
 	},
 }
 
@@ -111,4 +78,5 @@ func init() {
 	rootCmd.AddCommand(listCmd)
 	listCmd.Flags().String("vault", "", "Vault name or ID (defaults to C8YOP_VAULT or CYOP_VAULT env var)")
 	listCmd.Flags().String("tags", "", "Comma-separated tags to filter by (defaults to C8YOP_TAGS or CYOP_TAGS env var, then 'c8y')")
+	listCmd.Flags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
 }

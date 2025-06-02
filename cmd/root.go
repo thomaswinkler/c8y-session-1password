@@ -7,13 +7,14 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/thomaswinkler/c8y-session-1password/pkg/core"
 	"github.com/thomaswinkler/c8y-session-1password/pkg/core/picker"
 	"github.com/thomaswinkler/c8y-session-1password/pkg/onepassword"
 )
 
 // Version information - set by build process
 var (
-	Version = "1.0.0-dev"
+	Version = "1.0.0"
 	Commit  = "none"
 	Date    = "unknown"
 )
@@ -34,19 +35,21 @@ Sign in to your 1Password account from the command line
 Environment Variables:
 
  * C8YOP_VAULT - Default vault to search in (can be vault name or ID)
- * C8YOP_TAGS - Default tags to filter by (comma-separated)
+ * C8YOP_TAGS - Default tags to filter by (comma-separated, defaults to "c8y" if not set)
  * C8YOP_ITEM - Default item to retrieve (item ID or name)
  
  For compatibility, CYOP_* variants are also supported:
  * CYOP_VAULT - Fallback for C8YOP_VAULT
- * CYOP_TAGS - Fallback for C8YOP_TAGS  
+ * CYOP_TAGS - Fallback for C8YOP_TAGS (defaults to "c8y" if neither is set)
  * CYOP_ITEM - Fallback for C8YOP_ITEM
 
 Usage modes:
  * No arguments: Interactive session selection (same as 'list' command)
  * With --vault and --item: Direct item retrieval
  * With --uri: Direct item retrieval using op://vault/item format
-`,
+
+By default, sensitive information (passwords, TOTP secrets) is obfuscated in the output.
+Use --reveal to show the actual values.`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vault, err := cmd.Flags().GetString("vault")
@@ -65,19 +68,18 @@ Usage modes:
 			return err
 		}
 
+		reveal, err := cmd.Flags().GetBool("reveal")
+		if err != nil {
+			return err
+		}
+
 		// Get default values from environment variables
 		if vault == "" {
-			vault = os.Getenv("C8YOP_VAULT")
-			if vault == "" {
-				vault = os.Getenv("CYOP_VAULT") // Fallback for compatibility
-			}
+			vault = getEnvWithFallback("C8YOP_VAULT", "CYOP_VAULT")
 		}
 
 		if item == "" {
-			item = os.Getenv("C8YOP_ITEM")
-			if item == "" {
-				item = os.Getenv("CYOP_ITEM") // Fallback for compatibility
-			}
+			item = getEnvWithFallback("C8YOP_ITEM", "CYOP_ITEM")
 		}
 
 		// Parse op:// URI if provided
@@ -95,48 +97,24 @@ Usage modes:
 			}
 		}
 
+		// Get tags using helper function (needed for both direct and interactive access)
+		tags := parseTags("")
+
 		// If we have both vault and item, get the item directly
 		if vault != "" && item != "" {
-			client := onepassword.NewClient(vault)
+			client := onepassword.NewClient(vault, tags...)
 			session, err := client.GetItem(vault, item)
 			if err != nil {
 				return err
 			}
 
 			// Get TOTP if available
-			if session.TOTPSecret != "" {
-				totp, totpErr := onepassword.GetTOTPCodeFromSecret(session.TOTPSecret)
-				if totpErr == nil {
-					session.TOTP = totp
-				}
-			}
+			populateTOTP(session)
 
-			out, err := json.MarshalIndent(session, "", "  ")
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%s\n", out)
-			return nil
+			return outputSession(session, reveal)
 		}
 
 		// If no specific item is requested, fall back to interactive list
-		// Get default tags
-		var tags []string
-		if envTags := os.Getenv("C8YOP_TAGS"); envTags != "" {
-			tags = strings.Split(envTags, ",")
-			for i := range tags {
-				tags[i] = strings.TrimSpace(tags[i])
-			}
-		} else if envTags := os.Getenv("CYOP_TAGS"); envTags != "" { // Fallback for compatibility
-			tags = strings.Split(envTags, ",")
-			for i := range tags {
-				tags[i] = strings.TrimSpace(tags[i])
-			}
-		}
-		// Default to "c8y" tag if no tags specified
-		if len(tags) == 0 {
-			tags = []string{"c8y"}
-		}
 
 		client := onepassword.NewClient(vault, tags...)
 		sessions, err := client.List()
@@ -150,26 +128,10 @@ Usage modes:
 			return err
 		}
 
-		// Check if TOTP secret is present and calc next code
-		for _, s := range sessions {
-			if session.ItemID == s.ItemID {
-				session.Password = s.Password
-				if s.TOTPSecret != "" {
-					totp, totpErr := onepassword.GetTOTPCodeFromSecret(s.TOTPSecret)
-					if totpErr == nil {
-						session.TOTP = totp
-					}
-					break
-				}
-			}
-		}
+		// Populate session details and TOTP from the full session list
+		populateSessionFromList(session, sessions)
 
-		out, err := json.MarshalIndent(session, "", "  ")
-		if err != nil {
-			return err
-		}
-		fmt.Printf("%s\n", out)
-		return nil
+		return outputSession(session, reveal)
 	},
 }
 
@@ -184,6 +146,7 @@ func init() {
 	rootCmd.Flags().String("vault", "", "Vault name or ID (defaults to C8YOP_VAULT or CYOP_VAULT env var)")
 	rootCmd.Flags().String("item", "", "Specific item ID or name to retrieve (defaults to C8YOP_ITEM or CYOP_ITEM env var)")
 	rootCmd.Flags().String("uri", "", "op://vault/item URI to retrieve specific item")
+	rootCmd.Flags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
 	rootCmd.AddCommand(versionCmd)
 }
 
@@ -195,4 +158,99 @@ var versionCmd = &cobra.Command{
 		fmt.Printf("Commit: %s\n", Commit)
 		fmt.Printf("Built: %s\n", Date)
 	},
+}
+
+// Helper function to populate TOTP for a session
+func populateTOTP(session *core.CumulocitySession) {
+	if session.TOTPSecret != "" {
+		totp, err := onepassword.GetTOTPCodeFromSecret(session.TOTPSecret)
+		if err == nil {
+			session.TOTP = totp
+		}
+	}
+}
+
+// Helper function to find and populate session details from list
+func populateSessionFromList(targetSession *core.CumulocitySession, allSessions []*core.CumulocitySession) {
+	for _, s := range allSessions {
+		if targetSession.ItemID == s.ItemID {
+			targetSession.Password = s.Password
+			populateTOTP(targetSession)
+			break
+		}
+	}
+}
+
+// Helper function to get environment variable with fallback compatibility
+func getEnvWithFallback(primary, fallback string) string {
+	if value := os.Getenv(primary); value != "" {
+		return value
+	}
+	return os.Getenv(fallback)
+}
+
+// Helper function to split and trim strings from comma-separated list
+func splitAndTrimString(input string) []string {
+	if input == "" {
+		return nil
+	}
+
+	parts := strings.Split(input, ",")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+
+	// Filter out empty strings
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+
+	return result
+}
+
+// Helper function to parse tags from environment variables or command line
+func parseTags(flagValue string) []string {
+	var tags []string
+
+	if flagValue != "" {
+		tags = splitAndTrimString(flagValue)
+	} else if envTags := getEnvWithFallback("C8YOP_TAGS", "CYOP_TAGS"); envTags != "" {
+		tags = splitAndTrimString(envTags)
+	}
+
+	// Default to "c8y" tag if no tags specified
+	if len(tags) == 0 {
+		tags = []string{"c8y"}
+	}
+
+	return tags
+}
+
+// Helper function to output session as JSON
+func outputSession(session *core.CumulocitySession, reveal bool) error {
+	// Create a copy of the session to avoid modifying the original
+	outputSession := *session
+
+	// Obfuscate sensitive fields if reveal is false
+	if !reveal {
+		if outputSession.Password != "" {
+			outputSession.Password = "***"
+		}
+		if outputSession.TOTP != "" {
+			outputSession.TOTP = "***"
+		}
+		if outputSession.TOTPSecret != "" {
+			outputSession.TOTPSecret = "***"
+		}
+	}
+
+	out, err := json.MarshalIndent(&outputSession, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s\n", out)
+	return nil
 }

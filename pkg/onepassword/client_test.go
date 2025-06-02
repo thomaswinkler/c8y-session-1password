@@ -1,7 +1,10 @@
 package onepassword
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/thomaswinkler/c8y-session-1password/pkg/core"
 )
 
 func TestIsUID(t *testing.T) {
@@ -140,4 +143,292 @@ func TestParseVaultNames(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseVaultNamesFromString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "single vault",
+			input:    "vault1",
+			expected: []string{"vault1"},
+		},
+		{
+			name:     "multiple vaults",
+			input:    "vault1,vault2,vault3",
+			expected: []string{"vault1", "vault2", "vault3"},
+		},
+		{
+			name:     "multiple vaults with spaces",
+			input:    "vault1, vault2 , vault3",
+			expected: []string{"vault1", "vault2", "vault3"},
+		},
+		{
+			name:     "empty vault",
+			input:    "",
+			expected: []string{},
+		},
+		{
+			name:     "vault with empty entries",
+			input:    "vault1,,vault2,",
+			expected: []string{"vault1", "vault2"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := parseVaultNamesFromString(test.input)
+			if len(result) != len(test.expected) {
+				t.Errorf("parseVaultNamesFromString() returned %d vaults, expected %d", len(result), len(test.expected))
+				return
+			}
+			for i, expected := range test.expected {
+				if result[i] != expected {
+					t.Errorf("parseVaultNamesFromString()[%d] = %q; expected %q", i, result[i], expected)
+				}
+			}
+		})
+	}
+}
+
+func TestMapToSessions_MultipleURLs(t *testing.T) {
+	item := &OPItem{
+		ID:       "test123",
+		Title:    "Test Service",
+		Category: "LOGIN",
+		Vault: OPVault{
+			ID:   "vault123",
+			Name: "Test Vault",
+		},
+		Fields: []OPField{
+			{ID: "username", Value: "testuser"},
+			{ID: "password", Value: "testpass"},
+			{Label: "Tenant", Value: "testtenant"},
+		},
+		URLs: []OPURL{
+			{Label: "Production", Primary: true, Href: "https://prod.example.com"},
+			{Label: "Staging", Primary: false, Href: "https://staging.example.com"},
+			{Label: "Development", Primary: false, Href: "https://dev.example.com"},
+		},
+		Tags: []string{"c8y", "test"},
+	}
+
+	vaults := map[string]string{"vault123": "Test Vault"}
+	sessions := mapToSessions(item, vaults)
+
+	// Should create 3 sessions for 3 URLs
+	if len(sessions) != 3 {
+		t.Errorf("Expected 3 sessions, got %d", len(sessions))
+	}
+
+	// First session should be primary (sorted first)
+	if !strings.Contains(sessions[0].Name, "Production") {
+		t.Errorf("Expected first session to be Production, got %s", sessions[0].Name)
+	}
+	if sessions[0].Host != "https://prod.example.com" {
+		t.Errorf("Expected first session host to be prod.example.com, got %s", sessions[0].Host)
+	}
+
+	// Check that all sessions have the same basic info
+	for i, session := range sessions {
+		if session.Username != "testuser" {
+			t.Errorf("Session %d: Expected username 'testuser', got '%s'", i, session.Username)
+		}
+		if session.Tenant != "testtenant" {
+			t.Errorf("Session %d: Expected tenant 'testtenant', got '%s'", i, session.Tenant)
+		}
+		if session.ItemID != "test123" {
+			t.Errorf("Session %d: Expected ItemID 'test123', got '%s'", i, session.ItemID)
+		}
+		if !strings.Contains(session.SessionURI, "vault123/test123") {
+			t.Errorf("Session %d: Expected SessionURI to contain vault/item, got '%s'", i, session.SessionURI)
+		}
+	}
+
+	// Check that names are properly differentiated
+	expectedNames := []string{"Test Service (Production)", "Test Service (Staging)", "Test Service (Development)"}
+	for i, expectedName := range expectedNames {
+		if sessions[i].Name != expectedName {
+			t.Errorf("Session %d: Expected name '%s', got '%s'", i, expectedName, sessions[i].Name)
+		}
+	}
+}
+
+func TestMapToSessions_SingleURL(t *testing.T) {
+	item := &OPItem{
+		ID:       "test456",
+		Title:    "Single URL Service",
+		Category: "LOGIN",
+		Vault: OPVault{
+			ID:   "vault456",
+			Name: "Test Vault",
+		},
+		Fields: []OPField{
+			{ID: "username", Value: "singleuser"},
+			{ID: "password", Value: "singlepass"},
+		},
+		URLs: []OPURL{
+			{Label: "", Primary: true, Href: "https://single.example.com"},
+		},
+		Tags: []string{"c8y"},
+	}
+
+	vaults := map[string]string{"vault456": "Test Vault"}
+	sessions := mapToSessions(item, vaults)
+
+	// Should create 1 session
+	if len(sessions) != 1 {
+		t.Errorf("Expected 1 session, got %d", len(sessions))
+	}
+
+	session := sessions[0]
+	if session.Name != "Single URL Service" {
+		t.Errorf("Expected name 'Single URL Service', got '%s'", session.Name)
+	}
+	if session.Host != "https://single.example.com" {
+		t.Errorf("Expected host 'https://single.example.com', got '%s'", session.Host)
+	}
+	if strings.Contains(session.SessionURI, "#") {
+		t.Errorf("Expected simple SessionURI without fragment, got '%s'", session.SessionURI)
+	}
+}
+
+func TestMapToSessions_FallbackURL(t *testing.T) {
+	item := &OPItem{
+		ID:       "test789",
+		Title:    "Fallback Service",
+		Category: "LOGIN",
+		Vault: OPVault{
+			ID:   "vault789",
+			Name: "Test Vault",
+		},
+		Fields: []OPField{
+			{ID: "username", Value: "fallbackuser"},
+			{ID: "password", Value: "fallbackpass"},
+			{Label: "website", Value: "https://fallback.example.com"},
+		},
+		URLs: []OPURL{}, // No URLs in urls array
+		Tags: []string{"c8y"},
+	}
+
+	vaults := map[string]string{"vault789": "Test Vault"}
+	sessions := mapToSessions(item, vaults)
+
+	// Should create 1 session using fallback URL
+	if len(sessions) != 1 {
+		t.Errorf("Expected 1 session, got %d", len(sessions))
+	}
+
+	session := sessions[0]
+	if session.Host != "https://fallback.example.com" {
+		t.Errorf("Expected fallback host 'https://fallback.example.com', got '%s'", session.Host)
+	}
+}
+
+func TestOPItem_Skip_WithFallbackURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		item     OPItem
+		expected bool
+	}{
+		{
+			name: "Has URLs array - don't skip",
+			item: OPItem{
+				Category: "LOGIN",
+				URLs:     []OPURL{{Href: "https://example.com"}},
+			},
+			expected: false,
+		},
+		{
+			name: "No URLs but has website field - don't skip",
+			item: OPItem{
+				Category: "LOGIN",
+				URLs:     []OPURL{},
+				Fields:   []OPField{{Label: "website", Value: "https://example.com"}},
+			},
+			expected: false,
+		},
+		{
+			name: "No URLs but has URL field - don't skip",
+			item: OPItem{
+				Category: "LOGIN",
+				URLs:     []OPURL{},
+				Fields:   []OPField{{Label: "URL", Value: "https://example.com"}},
+			},
+			expected: false,
+		},
+		{
+			name: "No URLs and no fallback fields - skip",
+			item: OPItem{
+				Category: "LOGIN",
+				URLs:     []OPURL{},
+				Fields:   []OPField{{Label: "notes", Value: "some notes"}},
+			},
+			expected: true,
+		},
+		{
+			name: "Not a LOGIN item - skip",
+			item: OPItem{
+				Category: "SECURE_NOTE",
+				URLs:     []OPURL{{Href: "https://example.com"}},
+			},
+			expected: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := test.item.Skip()
+			if result != test.expected {
+				t.Errorf("Skip() = %v; expected %v", result, test.expected)
+			}
+		})
+	}
+}
+
+// Test helper function for backward compatibility with existing tests
+func mapToSessions(item *OPItem, vaults map[string]string) []*core.CumulocitySession {
+	// Convert to core types
+	coreItem := core.Item{
+		ID:    item.ID,
+		Title: item.Title,
+		Tags:  item.Tags,
+		Vault: core.Vault{
+			ID:   item.Vault.ID,
+			Name: item.Vault.Name,
+		},
+	}
+
+	// Extract fields
+	fields := item.extractFields()
+	coreFields := core.ItemFields{
+		Username:   fields.username,
+		Password:   fields.password,
+		TOTPSecret: fields.totpSecret,
+		Tenant:     fields.tenant,
+	}
+
+	// Collect URLs
+	allURLs := item.collectURLs()
+	coreURLs := make([]core.URLSource, len(allURLs))
+	for i, url := range allURLs {
+		coreURLs[i] = core.URLSource{
+			URL:     url.URL,
+			Label:   url.Label,
+			Primary: url.Primary,
+			Source:  url.Source,
+		}
+	}
+
+	// Determine vault name for URI
+	vaultName := item.Vault.Name
+	if name, found := vaults[item.Vault.ID]; found {
+		vaultName = name
+	}
+
+	// No tag filtering for backward compatibility
+	return core.MapToSessions(coreItem, coreFields, coreURLs, vaultName, nil)
 }

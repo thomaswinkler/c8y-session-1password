@@ -7,21 +7,6 @@
 
 A session provider for [go-c8y-cli](https://github.com/reubenmiller/go-c8y-cli) that integrates with 1Password for storing and retrieving Cumulocity IoT session credentials.
 
-## Features
-
-- Interactive session picker with search and filtering
-- Integration with 1Password CLI
-- Support for TOTP/2FA codes
-- Vault and tag-based filtering
-- Environment variable configuration
-- Compatible with `c8y sessions login --from-cmd` workflow
-
-## Prerequisites
-
-- [1Password CLI (op)](https://developer.1password.com/docs/cli/) installed and configured
-- [go-c8y-cli](https://github.com/reubenmiller/go-c8y-cli) installed
-- Active 1Password session (run `op signin` first)
-
 ## Installation
 
 ### Using Go Install
@@ -30,355 +15,136 @@ A session provider for [go-c8y-cli](https://github.com/reubenmiller/go-c8y-cli) 
 go install github.com/thomaswinkler/c8y-session-1password@latest
 ```
 
-**Note**: Make sure your Go bin directory is in your PATH. Add this to your shell profile if needed:
+Or download from [GitHub Releases](https://github.com/thomaswinkler/c8y-session-1password/releases).
 
+## Integration with go-c8y-cli
+
+**Interactive session picker:**
 ```bash
-export PATH="$PATH:$(go env GOPATH)/bin"
+eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)
 ```
 
-Then reload your shell:
+**Direct session access:**
 ```bash
-source ~/.zshrc  # or ~/.bashrc, ~/.bash_profile
+eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Employee --item Production --reveal" --shell auto)
 ```
 
-### Download Pre-built Binaries
-
-Download the latest release from [GitHub Releases](https://github.com/thomaswinkler/c8y-session-1password/releases).
-
-### Build from Source
-
+**Using environment variables:**
 ```bash
-git clone https://github.com/thomaswinkler/c8y-session-1password.git
-cd c8y-session-1password
-make build
-```
-
-## Usage
-
-### Basic Usage
-
-Interactive session selection:
-
-```bash
-c8y-session-1password list
-```
-
-Direct item retrieval:
-
-```bash
-# Using vault and item flags
-c8y-session-1password --vault "Employee" --item "Production"
-
-# Using op:// URI
-c8y-session-1password --uri "op://Employee/Production"
-
-# Using environment variables
 export C8YOP_VAULT="Employee"
 export C8YOP_ITEM="Production"
-c8y-session-1password
+eval $(c8y sessions login --from-cmd "c8y-session-1password" --reveal --shell auto)
 ```
 
-### Integration with go-c8y-cli
+## 1Password Setup
 
-Use with `c8y sessions login` for seamless session switching:
+Structure your 1Password login items with:
+- **Title**: Session name
+- **Username**: Cumulocity username  
+- **Password**: Cumulocity password
+- **Website**: Cumulocity instance URL (or use URLs section for multiple environments)
+- **Tags**: Add `c8y` tag (required for filtering)
+- **Custom Field** (optional): `Tenant` for explicit tenant specification
+- **One-Time Password** (optional): TOTP secret for 2FA
 
-```bash
-# Interactive selection
-eval $(c8y sessions login --from-cmd "c8y-session-1password list" --shell auto)
+Keep item names short and consistent. Same for tags.
 
-# Direct item retrieval
-eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Employee --item Production" --shell auto)
-```
+### Multiple URLs Support
 
-### Command Line Options
+Items with multiple URLs in the 1Password URLs section will create separate sessions for each URL:
+- **Primary URLs** are listed first in the picker
+- **URL labels** are used to distinguish between environments (e.g., "Production", "Staging")
+- **Fallback behavior**: If no URLs section exists, falls back to Website/URL fields
 
-#### Root Command
-For direct item retrieval:
-```bash
-c8y-session-1password --help
-```
-
-Available flags:
-- `--vault` - Vault name or ID to search in (supports multiple vaults: `"Employee,Shared"`)
-- `--item` - Specific item ID or name to retrieve
-- `--uri` - op://vault/item URI to retrieve specific item
-
-#### List Command
-For interactive session selection:
-```bash
-c8y-session-1password list --help
-```
-
-Available flags:
-- `--vault` - Vault name or ID to search in (supports multiple vaults: `"Employee,Shared"`)
-- `--tags` - Comma-separated tags to filter by
+## Configuration
 
 ### Environment Variables
+- `C8YOP_VAULT` - Default vault(s) to search (comma-separated: `"Employee,Shared"`)
+- `C8YOP_TAGS` - Filter tags (defaults to `"c8y"`)
+- `C8YOP_ITEM` - Default item name or ID
 
-Configure default values using environment variables:
+### Command Line Options
+```bash
+# Interactive picker (passwords obfuscated by default)
+c8y-session-1password list --vault "Employee" --tags "c8y,prod"
 
-- `C8YOP_VAULT` - Default vault to search in (can be vault name, ID, or comma-separated list: `"Employee,Shared"`)
-- `C8YOP_TAGS` - Default tags to filter by (comma-separated)
-- `C8YOP_ITEM` - Default item to retrieve (item ID or name)
+# Interactive picker with revealed passwords
+c8y-session-1password list --vault "Employee" --tags "c8y,prod" --reveal
 
-**Compatibility Note:** For backward compatibility, `CYOP_*` variants are also supported as fallbacks:
-- `CYOP_VAULT` - Fallback for C8YOP_VAULT
-- `CYOP_TAGS` - Fallback for C8YOP_TAGS
-- `CYOP_ITEM` - Fallback for C8YOP_ITEM
+# Direct access (passwords obfuscated by default)
+c8y-session-1password --vault "Employee" --item "Production"
+c8y-session-1password --uri "op://Employee/Production"
 
-Example:
+# Direct access with revealed passwords
+c8y-session-1password --vault "Employee" --item "Production" --reveal
+c8y-session-1password --uri "op://Employee/Production" --reveal
+```
+
+### Security Features
+
+By default, both commands obfuscate sensitive information (passwords, TOTP secrets) to prevent accidental exposure:
+
+- **`list` command**: Obfuscates sensitive information by default (shows `***`)
+  - Use `--reveal` to show actual values
+- **Root command (direct access)**: Obfuscates sensitive information by default (shows `***`)
+  - Use `--reveal` to show actual values
+- **Interactive mode from root**: Obfuscates sensitive information by default (shows `***`)
+  - Use `--reveal` to show actual values
+
+This approach prioritizes security by requiring explicit use of `--reveal` when you need to see sensitive credentials.
+
+## Shell Integration
+
+### Recommended Aliases
+
+Add these aliases to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.):
 
 ```bash
-export C8YOP_VAULT="Development"
-export C8YOP_TAGS="c8y,staging"
-export C8YOP_ITEM="My Cumulocity Session"
-c8y-session-1password list
+# Quick session login with interactive picker
+alias c8y-op='eval $(c8y sessions login --from-cmd "c8y-session-1password list" --reveal --shell auto)'
+
+# Quick session login with revealed passwords (for debugging)
+alias c8y-op-debug='eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)'
+
+# Add other aliases as needed
+alias c8y-xyz-session='eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Shared --item xyz" --reveal --shell auto)'
 ```
 
-Or using the compatibility format:
+### Environment Configuration
+
+For automated environments or when working with specific projects, set these in your shell profile:
 
 ```bash
-export CYOP_VAULT="Development"
-export CYOP_TAGS="c8y,staging"
-export CYOP_ITEM="My Cumulocity Session"
-c8y-session-1password
+# Default configuration
+export C8YOP_VAULT="Employee,Shared"
+export C8YOP_TAGS="c8y"
+
+# Project-specific configuration (optional)
+export C8YOP_ITEM="MyProject-Dev"
 ```
-
-### Direct Item Access
-
-You can retrieve a specific item directly without the interactive picker using several methods:
-
-#### Method 1: Using vault and item flags
-```bash
-c8y-session-1password --vault "Employee" --item "Cumulocity Production"
-```
-
-#### Method 2: Using op:// URI
-```bash
-c8y-session-1password --uri "op://Employee/Cumulocity Production"
-```
-
-#### Method 3: Using environment variables
-```bash
-export C8YOP_VAULT="Employee"
-export C8YOP_ITEM="Cumulocity Production"
-c8y-session-1password
-```
-
-All arguments are optional if the required environment variables are set, making it easy to configure in CI/CD environments.
-
-## Session URI Format
-
-The tool generates session URIs in the format:
-```
-op://VaultName/ItemName
-```
-
-- **VaultName**: The name of the 1Password vault containing the item
-- **ItemName**: The title/name of the 1Password item
-
-This format makes the URIs human-readable while internally using item UUIDs for reliable access.
-
-### Example Output
-```json
-{
-  "sessionUri": "op://Employee/Cumulocity Production",
-  "name": "Cumulocity Production", 
-  "host": "https://mycompany.cumulocity.com",
-  "username": "john.doe",
-  "tenant": "mycompany",
-  "totp": "123456",
-  "itemId": "abc123def456hij789klm012nop345qr",
-  "itemName": "Cumulocity Production",
-  "vaultId": "vault123",
-  "vaultName": "Employee",
-  "tags": ["c8y", "production"]
-}
-```
-
-## Multi-Vault Support
-
-The tool supports searching across multiple 1Password vaults by providing comma-separated vault names. This is particularly useful when you have credentials stored across different vaults (e.g., Employee and Shared vaults) and want to avoid specifying different vault names when switching between sessions.
-
-### How it works
-
-When multiple vaults are specified:
-- **For listing**: Items from all specified vaults are included in the results
-- **For direct item access**: Vaults are searched in the order specified until the item is found
 
 ### Usage Examples
 
-#### Interactive selection across multiple vaults
 ```bash
-c8y-session-1password list --vault "Employee,Shared"
-```
+# Interactive session selection
+c8y-op
 
-#### Direct item access with vault fallback
-```bash
-# Will search Employee first, then Shared if not found
-c8y-session-1password --vault "Employee,Shared" --item "Production Environment"
-```
+# Quick environment switching  
+c8y-xyz-session
 
-#### Environment variable configuration
-```bash
-export C8YOP_VAULT="Employee,Shared,Personal"
-export C8YOP_ITEM="My Session"
-c8y-session-1password  # Searches vaults in order until found
-```
-
-This feature eliminates the need to remember which vault contains which credentials, providing a seamless experience across your 1Password organization.
-
-## 1Password Item Structure
-
-For optimal compatibility, structure your 1Password login items as follows:
-
-### Required Fields
-- **Title**: Descriptive name for the session
-- **Username**: Your Cumulocity username (can include tenant as `tenant/username`)
-- **Password**: Your Cumulocity password
-- **Website**: URL of your Cumulocity instance
-
-### Optional Fields
-- **Tenant**: Custom field for explicit tenant specification
-- **One-Time Password**: TOTP secret for 2FA
-
-### Tags
-- Add the `c8y` tag (or your preferred tag) to identify Cumulocity sessions
-- Use additional tags for environment categorization (e.g., `production`, `staging`)
-
-### Example Item Structure
-```
-Title: My C8Y Instance
-Username: myuser@company.com
-Password: ••••••••
-Website: https://mycompany.cumulocity.com
-Tags: c8y, production
-Custom Fields:
-  - Tenant: mycompany
-```
-
-## Examples
-
-### Basic interactive session selection
-```bash
-c8y-session-1password list
-```
-
-### Filter by specific vault
-```bash
-c8y-session-1password list --vault "Work Credentials"
-```
-
-### Filter by multiple vaults
-```bash
-c8y-session-1password list --vault "Employee,Shared"
-```
-
-### Filter by multiple tags
-```bash
-c8y-session-1password list --tags "c8y,production"
-```
-
-### Get specific item by ID or name
-```bash
-c8y-session-1password --item "Cumulocity Production"
-c8y-session-1password --item "abc123def456hij789klm012nop345qr"
-```
-
-### Get specific item using op:// URI
-```bash
-c8y-session-1password --uri "op://Employee/Cumulocity Production"
-```
-
-### Get item from multiple vaults (searches in order)
-```bash
-c8y-session-1password --vault "Employee,Shared" --item "Cumulocity Production"
-```
-
-### Using environment variables for automation
-```bash
-# Set up environment for CI/CD
-export C8YOP_VAULT="Employee"
-export C8YOP_ITEM="Cumulocity Production"
-
-# Now you can call without any arguments
-c8y-session-1password
-```
-
-### Using multiple vaults for fallback
-```bash
-# Set up multiple vaults to search in order
-export C8YOP_VAULT="Employee,Shared,Personal"
-export C8YOP_ITEM="Cumulocity Production"
-
-# Will search Employee first, then Shared, then Personal
-c8y-session-1password
-```
-
-### Integration with go-c8y-cli using environment variables
-```bash
-# Set up your session details
-export C8YOP_VAULT="Employee"
-export C8YOP_ITEM="My Production Environment"
-
-# Use with c8y sessions login
-eval $(c8y sessions login --from-cmd "c8y-session-1password" --shell auto)
-```
-
-### Shell alias for quick access
-Add to your shell profile:
-```bash
-alias c8y-login='eval $(c8y sessions login --from-cmd "c8y-session-1password list" --shell auto)'
-alias c8y-prod='eval $(c8y sessions login --from-cmd "c8y-session-1password --uri \"op://Employee/Production Environment\"" --shell auto)'
-```
-
-Then simply run:
-```bash
-c8y-login    # Interactive picker
-c8y-prod     # Direct to production environment
+# One-time vault override
+eval $(c8y sessions login --from-cmd "c8y-session-1password list --vault Personal" --reveal --shell auto)
 ```
 
 ## Development
 
-### Prerequisites
-- Go 1.21 or later
-- golangci-lint (for linting)
-- make (optional, for build automation)
+**Prerequisites:** Go 1.21+, golangci-lint, 1Password CLI
 
-### Building
 ```bash
-make build
+make build    # Build binary
+make test     # Run tests  
+make lint     # Run linting
 ```
-
-### Testing
-```bash
-make test
-```
-
-### Linting
-```bash
-make lint
-```
-
-### Coverage
-```bash
-make coverage
-```
-
-### Cross-platform builds
-```bash
-make build-all
-```
-
-### Installing from source
-```bash
-make install
-```
-
-## Related Projects
-
-- [go-c8y-cli](https://github.com/reubenmiller/go-c8y-cli) - Cumulocity IoT CLI tool
-- [c8y-session-bitwarden](https://github.com/reubenmiller/c8y-session-bitwarden) - Bitwarden integration
 
 ## License
 
