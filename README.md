@@ -118,16 +118,16 @@ Add these aliases to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.):
 
 ```bash
 # Quick session login with interactive picker (searches all vaults)
-alias c8y-op='eval $(c8y sessions login --from-cmd "c8y-session-1password list" --reveal --shell auto)'
+alias c8y-op='eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)'
 
 # Quick session login with revealed passwords (for debugging)
 alias c8y-op-debug='eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)'
 
 # Direct item access from all vaults
-alias c8y-find='eval $(c8y sessions login --from-cmd "c8y-session-1password --item" --reveal --shell auto)'
+alias c8y-find='eval $(c8y sessions login --from-cmd "c8y-session-1password --item xyz --reveal" --shell auto)'
 
 # Add other aliases as needed
-alias c8y-xyz-session='eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Shared --item xyz" --reveal --shell auto)'
+alias c8y-xyz-session='eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Shared --item xyz --reveal" --shell auto)'
 ```
 
 ### Environment Configuration
