@@ -24,7 +24,7 @@ func TestCumulocitySession_Title(t *testing.T) {
 		Host: "https://example.cumulocity.com",
 	}
 
-	expected := "https://example.cumulocity.com"
+	expected := "example.cumulocity.com"
 	result := session.Title()
 
 	if result != expected {
@@ -44,18 +44,23 @@ func TestCumulocitySession_Description(t *testing.T) {
 	result := session.Description()
 
 	// Check that all expected components are in the description
+	// Note: Vault is excluded from description to save space (it's in the URI)
 	expectedParts := []string{
 		"Username=testuser",
 		"Tenant=testtenant",
-		"Vault=testvault",
 		"Tags=c8y,test",
-		"uri=op://Employee/test-item",
+		"op://Employee/test-item",
 	}
 
 	for _, part := range expectedParts {
 		if !contains(result, part) {
 			t.Errorf("Description() = %q; expected to contain %q", result, part)
 		}
+	}
+
+	// Ensure vault is NOT in the description (space saving)
+	if contains(result, "Vault=testvault") {
+		t.Errorf("Description() = %q; should not contain vault (space saving)", result)
 	}
 }
 

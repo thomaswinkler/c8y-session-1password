@@ -90,9 +90,12 @@ Usage modes:
 			}
 		}
 
+		// Get tags using helper function (needed for both direct and interactive access)
+		tags := parseTags("")
+
 		// If we have both vault and item, get the item directly
 		if vault != "" && item != "" {
-			client := onepassword.NewClient(vault)
+			client := onepassword.NewClient(vault, tags...)
 			session, err := client.GetItem(vault, item)
 			if err != nil {
 				return err
@@ -105,8 +108,6 @@ Usage modes:
 		}
 
 		// If no specific item is requested, fall back to interactive list
-		// Get tags using helper function
-		tags := parseTags("")
 
 		client := onepassword.NewClient(vault, tags...)
 		sessions, err := client.List()

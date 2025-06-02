@@ -3,6 +3,8 @@ package onepassword
 import (
 	"strings"
 	"testing"
+
+	"github.com/thomaswinkler/c8y-session-1password/pkg/core"
 )
 
 func TestIsUID(t *testing.T) {
@@ -241,7 +243,7 @@ func TestMapToSessions_MultipleURLs(t *testing.T) {
 		if session.ItemID != "test123" {
 			t.Errorf("Session %d: Expected ItemID 'test123', got '%s'", i, session.ItemID)
 		}
-		if !strings.Contains(session.SessionURI, "Test Vault/Test Service") {
+		if !strings.Contains(session.SessionURI, "vault123/test123") {
 			t.Errorf("Session %d: Expected SessionURI to contain vault/item, got '%s'", i, session.SessionURI)
 		}
 	}
@@ -385,4 +387,48 @@ func TestOPItem_Skip_WithFallbackURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Test helper function for backward compatibility with existing tests
+func mapToSessions(item *OPItem, vaults map[string]string) []*core.CumulocitySession {
+	// Convert to core types
+	coreItem := core.Item{
+		ID:    item.ID,
+		Title: item.Title,
+		Tags:  item.Tags,
+		Vault: core.Vault{
+			ID:   item.Vault.ID,
+			Name: item.Vault.Name,
+		},
+	}
+
+	// Extract fields
+	fields := item.extractFields()
+	coreFields := core.ItemFields{
+		Username:   fields.username,
+		Password:   fields.password,
+		TOTPSecret: fields.totpSecret,
+		Tenant:     fields.tenant,
+	}
+
+	// Collect URLs
+	allURLs := item.collectURLs()
+	coreURLs := make([]core.URLSource, len(allURLs))
+	for i, url := range allURLs {
+		coreURLs[i] = core.URLSource{
+			URL:     url.URL,
+			Label:   url.Label,
+			Primary: url.Primary,
+			Source:  url.Source,
+		}
+	}
+
+	// Determine vault name for URI
+	vaultName := item.Vault.Name
+	if name, found := vaults[item.Vault.ID]; found {
+		vaultName = name
+	}
+
+	// No tag filtering for backward compatibility
+	return core.MapToSessions(coreItem, coreFields, coreURLs, vaultName, nil)
 }
