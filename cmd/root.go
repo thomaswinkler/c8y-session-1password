@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -38,6 +39,7 @@ Environment Variables:
                  If not provided, searches all vaults
  * C8YOP_TAGS - Default tags to filter by (comma-separated, defaults to "c8y" if not set)
  * C8YOP_ITEM - Default item to retrieve (item ID or name)
+ * LOG_LEVEL - Logging level (debug, info, warn, error; defaults to info)
  
  For compatibility, CYOP_* variants are also supported:
  * CYOP_VAULT - Fallback for C8YOP_VAULT
@@ -144,7 +146,35 @@ func Execute() {
 	}
 }
 
+// setupLogging configures slog based on LOG_LEVEL environment variable
+func setupLogging() {
+	logLevel := os.Getenv("LOG_LEVEL")
+	var level slog.Level
+
+	switch strings.ToLower(logLevel) {
+	case "debug":
+		level = slog.LevelDebug
+	case "info":
+		level = slog.LevelInfo
+	case "warn", "warning":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo // Default to info level
+	}
+
+	// Create a new logger with the specified level
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: level,
+	}))
+
+	// Set as the default logger
+	slog.SetDefault(logger)
+}
+
 func init() {
+	setupLogging()
 	rootCmd.Flags().String("vault", "", "Vault name or ID (optional - if not provided, searches all vaults; defaults to C8YOP_VAULT or CYOP_VAULT env var)")
 	rootCmd.Flags().String("item", "", "Specific item ID or name to retrieve (defaults to C8YOP_ITEM or CYOP_ITEM env var)")
 	rootCmd.Flags().String("uri", "", "op://vault/item URI to retrieve specific item")

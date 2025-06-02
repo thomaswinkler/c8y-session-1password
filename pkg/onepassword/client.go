@@ -166,8 +166,13 @@ func check1Password() error {
 	}
 
 	// Check if user is signed in
+	start := time.Now()
+	slog.Debug("op account get")
 	cmd := exec.Command("op", "account", "get")
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	duration := time.Since(start)
+	slog.Debug("op command completed", "duration_ms", duration.Milliseconds())
+	if err != nil {
 		return fmt.Errorf("not signed in to 1Password. Please run 'op signin' first")
 	}
 
@@ -328,6 +333,8 @@ func (c *Client) exec(args []string, data any) error {
 		return err
 	}
 
+	start := time.Now()
+	slog.Debug("op " + strings.Join(args, " "))
 	op := exec.Command("op", args...)
 	stdout, err := op.StdoutPipe()
 	if err != nil {
@@ -344,6 +351,8 @@ func (c *Client) exec(args []string, data any) error {
 	// wait for command to finish in background
 	go func() {
 		_ = op.Wait() // ignore error as we already have the data
+		duration := time.Since(start)
+		slog.Debug("op command completed", "duration_ms", duration.Milliseconds())
 	}()
 
 	return parseErr
@@ -355,6 +364,7 @@ func (c *Client) List(name ...string) ([]*core.CumulocitySession, error) {
 	}
 
 	vaultNames := c.parseVaultNames()
+	slog.Debug("Parsed vault names", "vaultNames", vaultNames, "count", len(vaultNames))
 	allSessions := make([]*core.CumulocitySession, 0)
 
 	// If no vaults specified, search all vaults
@@ -404,6 +414,7 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 	var vaultErr error
 
 	if vaultName != "" {
+		slog.Debug("Checking vault", "vault", vaultName, "isUID", isUID(vaultName))
 		if isUID(vaultName) {
 			// Filter by vault id (no additional lookup required)
 			listArgs = append(listArgs, "--vault", vaultName)
@@ -413,9 +424,11 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 			if vaultErr != nil {
 				return nil, vaultErr
 			}
+			slog.Debug("Vault lookup result", "vault", vaultName, "found_count", len(vaults))
 			if len(vaults) > 0 {
 				// Use the first matching vault
 				for vaultID := range vaults {
+					slog.Debug("Using vault", "vaultID", vaultID, "vaultName", vaults[vaultID])
 					listArgs = append(listArgs, "--vault", vaultID)
 					break
 				}
@@ -434,7 +447,7 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 		}
 	}
 
-	slog.Debug("Starting optimized fetch", "time", time.Now().Format(time.RFC3339Nano))
+	slog.Debug("Starting optimized fetch")
 
 	// First get the list of items
 	items := make([]OPItem, 0)
@@ -466,7 +479,7 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 		return nil, err
 	}
 
-	slog.Debug("Completed fetch", "count", len(detailedItems), "time", time.Now().Format(time.RFC3339Nano))
+	slog.Debug("Completed fetch", "count", len(detailedItems))
 
 	// Get vault names for proper display if not already loaded
 	if vaults == nil {
@@ -517,6 +530,9 @@ func (c *Client) bulkGetItems(listArgs []string) ([]OPItem, error) {
 		return nil, err
 	}
 
+	start := time.Now()
+	slog.Debug("op " + strings.Join(listArgs, " ") + " | op item get - --format json")
+
 	// Create the list command
 	listCmd := exec.Command("op", listArgs...)
 
@@ -548,6 +564,9 @@ func (c *Client) bulkGetItems(listArgs []string) ([]OPItem, error) {
 	if err := listCmd.Wait(); err != nil {
 		return nil, fmt.Errorf("list command failed: %w", err)
 	}
+
+	duration := time.Since(start)
+	slog.Debug("op command completed", "duration_ms", duration.Milliseconds())
 
 	// Parse multiple JSON objects from the output
 	// The output contains multiple pretty-printed JSON objects
@@ -676,8 +695,12 @@ func (c *Client) getItemFromVault(vaultIdentifier, itemIdentifier string) (*core
 		args = append(args, "--vault", vaultIdentifier)
 	}
 
+	start := time.Now()
+	slog.Debug("op " + strings.Join(args, " "))
 	cmd := exec.Command("op", args...)
 	output, err := cmd.Output()
+	duration := time.Since(start)
+	slog.Debug("op command completed", "duration_ms", duration.Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get item from 1Password: %w", err)
 	}

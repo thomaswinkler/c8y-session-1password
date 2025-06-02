@@ -73,6 +73,7 @@ Items with multiple URLs in the 1Password URLs section will create separate sess
 - `C8YOP_VAULT` - Default vault(s) to search (comma-separated: `"Employee,Shared"`, optional - if not provided, searches all vaults)
 - `C8YOP_TAGS` - Filter tags (defaults to `"c8y"`)
 - `C8YOP_ITEM` - Default item name or ID
+- `LOG_LEVEL` - Logging level (`debug`, `info`, `warn`, `error`; defaults to `info`)
 
 ### Command Line Options
 ```bash
@@ -109,6 +110,30 @@ By default, both commands obfuscate sensitive information (passwords, TOTP secre
   - Use `--reveal` to show actual values
 
 This approach prioritizes security by requiring explicit use of `--reveal` when you need to see sensitive credentials.
+
+### Debugging and Logging
+
+Enable debug logging to troubleshoot 1Password integration issues:
+
+```bash
+# Enable debug logging
+export LOG_LEVEL=debug
+c8y-session-1password list
+
+# Or inline
+LOG_LEVEL=debug c8y-session-1password --item "Production"
+```
+
+Available log levels:
+- `debug` - Detailed operational information (fetching items, API calls)
+- `info` - General information (default)
+- `warn` - Warning messages
+- `error` - Error messages only
+
+Debug logging is particularly useful for:
+- Troubleshooting 1Password CLI connectivity
+- Understanding which vaults and items are being searched
+- Performance analysis of bulk vs individual item fetching
 
 ## Shell Integration
 
