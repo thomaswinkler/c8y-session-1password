@@ -47,7 +47,9 @@ Usage modes:
  * No arguments: Interactive session selection (same as 'list' command)
  * With --vault and --item: Direct item retrieval
  * With --uri: Direct item retrieval using op://vault/item format
-`,
+
+By default, sensitive information (passwords, TOTP secrets) is obfuscated in the output.
+Use --reveal to show the actual values.`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vault, err := cmd.Flags().GetString("vault")
@@ -62,6 +64,11 @@ Usage modes:
 
 		// Check for op:// URI
 		opURI, err := cmd.Flags().GetString("uri")
+		if err != nil {
+			return err
+		}
+
+		reveal, err := cmd.Flags().GetBool("reveal")
 		if err != nil {
 			return err
 		}
@@ -104,7 +111,7 @@ Usage modes:
 			// Get TOTP if available
 			populateTOTP(session)
 
-			return outputSession(session, true) // Always reveal for direct item access
+			return outputSession(session, reveal)
 		}
 
 		// If no specific item is requested, fall back to interactive list
@@ -124,7 +131,7 @@ Usage modes:
 		// Populate session details and TOTP from the full session list
 		populateSessionFromList(session, sessions)
 
-		return outputSession(session, true) // Always reveal for interactive mode from root command
+		return outputSession(session, reveal)
 	},
 }
 
@@ -139,6 +146,7 @@ func init() {
 	rootCmd.Flags().String("vault", "", "Vault name or ID (defaults to C8YOP_VAULT or CYOP_VAULT env var)")
 	rootCmd.Flags().String("item", "", "Specific item ID or name to retrieve (defaults to C8YOP_ITEM or CYOP_ITEM env var)")
 	rootCmd.Flags().String("uri", "", "op://vault/item URI to retrieve specific item")
+	rootCmd.Flags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
 	rootCmd.AddCommand(versionCmd)
 }
 

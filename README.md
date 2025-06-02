@@ -26,14 +26,14 @@ eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --she
 
 **Direct session access:**
 ```bash
-eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Employee --item Production" --shell auto)
+eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Employee --item Production --reveal" --shell auto)
 ```
 
 **Using environment variables:**
 ```bash
 export C8YOP_VAULT="Employee"
 export C8YOP_ITEM="Production"
-eval $(c8y sessions login --from-cmd "c8y-session-1password" --shell auto)
+eval $(c8y sessions login --from-cmd "c8y-session-1password" --reveal --shell auto)
 ```
 
 ## 1Password Setup
@@ -46,6 +46,8 @@ Structure your 1Password login items with:
 - **Tags**: Add `c8y` tag (required for filtering)
 - **Custom Field** (optional): `Tenant` for explicit tenant specification
 - **One-Time Password** (optional): TOTP secret for 2FA
+
+Keep item names short and consistent. Same for tags.
 
 ### Multiple URLs Support
 
@@ -69,18 +71,27 @@ c8y-session-1password list --vault "Employee" --tags "c8y,prod"
 # Interactive picker with revealed passwords
 c8y-session-1password list --vault "Employee" --tags "c8y,prod" --reveal
 
-# Direct access
+# Direct access (passwords obfuscated by default)
 c8y-session-1password --vault "Employee" --item "Production"
 c8y-session-1password --uri "op://Employee/Production"
+
+# Direct access with revealed passwords
+c8y-session-1password --vault "Employee" --item "Production" --reveal
+c8y-session-1password --uri "op://Employee/Production" --reveal
 ```
 
 ### Security Features
 
-By default, the `list` command obfuscates sensitive information (passwords, TOTP secrets) in the output to prevent accidental exposure. Use the `--reveal` flag when you need to see the actual values:
+By default, both commands obfuscate sensitive information (passwords, TOTP secrets) to prevent accidental exposure:
 
-- **Default behavior**: Passwords and TOTP secrets are shown as `***`
-- **With `--reveal`**: Shows actual sensitive values
-- **Direct access**: Always reveals passwords (since you're directly requesting a specific item)
+- **`list` command**: Obfuscates sensitive information by default (shows `***`)
+  - Use `--reveal` to show actual values
+- **Root command (direct access)**: Obfuscates sensitive information by default (shows `***`)
+  - Use `--reveal` to show actual values
+- **Interactive mode from root**: Obfuscates sensitive information by default (shows `***`)
+  - Use `--reveal` to show actual values
+
+This approach prioritizes security by requiring explicit use of `--reveal` when you need to see sensitive credentials.
 
 ## Shell Integration
 
@@ -90,13 +101,13 @@ Add these aliases to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.):
 
 ```bash
 # Quick session login with interactive picker
-alias c8y-op='eval $(c8y sessions login --from-cmd "c8y-session-1password list" --shell auto)'
+alias c8y-op='eval $(c8y sessions login --from-cmd "c8y-session-1password list" --reveal --shell auto)'
 
 # Quick session login with revealed passwords (for debugging)
 alias c8y-op-debug='eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)'
 
 # Add other aliases as needed
-alias c8y-xyz-session='eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Shared --item xyz" --shell auto)'
+alias c8y-xyz-session='eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Shared --item xyz" --reveal --shell auto)'
 ```
 
 ### Environment Configuration
@@ -122,7 +133,7 @@ c8y-op
 c8y-xyz-session
 
 # One-time vault override
-eval $(c8y sessions login --from-cmd "c8y-session-1password list --vault Personal" --shell auto)
+eval $(c8y sessions login --from-cmd "c8y-session-1password list --vault Personal" --reveal --shell auto)
 ```
 
 ## Development
