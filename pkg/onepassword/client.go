@@ -150,7 +150,7 @@ func (opi *OPItem) Skip() bool {
 	}
 
 	// Skip if no URLs found anywhere
-	slog.Debug("Item skipped: no URLs found", "item_id", opi.ID, "urls_array_count", len(opi.URLs), "url_fields_count", urlFieldCount)
+	slog.Debug("Item skipped: no URLs found", "item_id", opi.ID, "urls_count", len(opi.URLs), "url_fields_count", urlFieldCount)
 	return true
 }
 
