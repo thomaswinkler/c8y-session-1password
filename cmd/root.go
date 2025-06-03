@@ -29,9 +29,10 @@ Pre-requisites:
 
  * 1Password CLI (op) - https://developer.1password.com/docs/cli/
 
-Sign in to your 1Password account from the command line
-
-	$ op signin
+Authentication options:
+ * Interactive: Sign in to your 1Password account: op signin
+ * Service Account: Set OP_SERVICE_ACCOUNT_TOKEN environment variable
+ * 1Password Connect: Set OP_CONNECT_HOST and OP_CONNECT_TOKEN environment variables
 
 Environment Variables:
 

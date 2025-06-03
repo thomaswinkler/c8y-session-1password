@@ -183,7 +183,7 @@ func check1Password() error {
 	duration := time.Since(start)
 	slog.Debug("op command completed", "duration_ms", duration.Milliseconds())
 	if err != nil {
-		return fmt.Errorf("not signed in to 1Password. Please run 'op signin' first")
+		return fmt.Errorf("not signed in to 1Password. Please run 'op signin' first or configure service account authentication")
 	}
 
 	return nil

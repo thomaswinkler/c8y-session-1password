@@ -49,6 +49,33 @@ eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --she
 
 ## 1Password Setup
 
+### Authentication
+
+The 1Password CLI supports multiple authentication methods:
+
+#### Interactive Authentication (Desktop/Personal Use)
+For personal use with the 1Password desktop app:
+```bash
+op signin
+```
+Requires the 1Password desktop application to be running.
+
+#### Service Account Authentication (Automated/CI/CD)
+For automated environments using 1Password Service Accounts:
+```bash
+export OP_SERVICE_ACCOUNT_TOKEN="your-service-account-token"
+```
+No desktop app required. Ideal for CI/CD pipelines and server environments.
+
+#### 1Password Connect (Self-Hosted)
+For organizations using 1Password Connect Server:
+```bash
+export OP_CONNECT_HOST="https://your-connect-server"
+export OP_CONNECT_TOKEN="your-connect-token"
+```
+
+### Item Structure
+
 Structure your 1Password login items with:
 - **Title**: Session name
 - **Username**: Cumulocity username  
