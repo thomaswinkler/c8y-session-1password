@@ -126,22 +126,31 @@ func (opi *OPItem) HasTenantField() bool {
 
 func (opi *OPItem) Skip() bool {
 	if opi.Category != "LOGIN" {
+		slog.Debug("Item skipped: not LOGIN category", "item_id", opi.ID, "category", opi.Category)
 		return true
 	}
 
 	// Don't skip if URLs array has entries
 	if len(opi.URLs) > 0 {
+		slog.Debug("Item accepted: has URLs array", "item_id", opi.ID, "urls_count", len(opi.URLs))
 		return false
 	}
 
 	// Check for URL fields if no urls array
+	urlFieldCount := 0
 	for _, field := range opi.Fields {
 		if isURLField(field) {
-			return false
+			urlFieldCount++
 		}
 	}
 
+	if urlFieldCount > 0 {
+		slog.Debug("Item accepted: has URL fields", "item_id", opi.ID, "url_fields_count", urlFieldCount)
+		return false
+	}
+
 	// Skip if no URLs found anywhere
+	slog.Debug("Item skipped: no URLs found", "item_id", opi.ID, "urls_array_count", len(opi.URLs), "url_fields_count", urlFieldCount)
 	return true
 }
 
@@ -167,7 +176,7 @@ func check1Password() error {
 
 	// Check if user is signed in
 	start := time.Now()
-	slog.Debug("op account get")
+	slog.Debug("op command", "command", "op account get")
 	cmd := exec.Command("op", "account", "get")
 	err := cmd.Run()
 	duration := time.Since(start)
@@ -334,7 +343,7 @@ func (c *Client) exec(args []string, data any) error {
 	}
 
 	start := time.Now()
-	slog.Debug("op " + strings.Join(args, " "))
+	slog.Debug("op command", "command", "op "+strings.Join(args, " "))
 	op := exec.Command("op", args...)
 	stdout, err := op.StdoutPipe()
 	if err != nil {
@@ -399,6 +408,7 @@ func (c *Client) List(name ...string) ([]*core.CumulocitySession, error) {
 		return normalizedI < normalizedJ
 	})
 
+	slog.Debug("List method completed", "total_sessions", len(allSessions), "vaults_searched", len(vaultNames))
 	return allSessions, nil
 }
 
@@ -492,6 +502,8 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 
 	sessions := make([]*core.CumulocitySession, 0)
 	for _, item := range detailedItems {
+		slog.Debug("Processing item", "item_id", item.ID, "item_title", item.Title, "category", item.Category, "urls_count", len(item.URLs), "tags", item.Tags)
+
 		if item.Skip() {
 			continue
 		}
@@ -511,6 +523,7 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 				}
 			}
 			if !hasRequiredTag {
+				slog.Debug("Skipping item", "item_id", item.ID, "reason", "missing required tags", "required_tags", c.Tags, "item_tags", item.Tags)
 				continue
 			}
 		}
@@ -520,6 +533,7 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 		sessions = append(sessions, itemSessions...)
 	}
 
+	slog.Debug("Item filtering completed", "total_items", len(detailedItems), "sessions_created", len(sessions), "vault_name", vaultName)
 	return sessions, nil
 }
 
@@ -531,7 +545,7 @@ func (c *Client) bulkGetItems(listArgs []string) ([]OPItem, error) {
 	}
 
 	start := time.Now()
-	slog.Debug("op " + strings.Join(listArgs, " ") + " | op item get - --format json")
+	slog.Debug("op command", "command", "op "+strings.Join(listArgs, " ")+" | op item get - --format json")
 
 	// Create the list command
 	listCmd := exec.Command("op", listArgs...)
@@ -719,7 +733,9 @@ func (c *Client) getItemFromVault(vaultIdentifier, itemIdentifier string) (*core
 
 	// Use mapToSessions to get properly formatted sessions
 	sessions := c.mapToSessions(&item, vaults)
+	slog.Debug("Created sessions for single item", "item_id", item.ID, "item_title", item.Title, "session_count", len(sessions))
 	if len(sessions) > 0 {
+		slog.Debug("Returning first session", "session_host", sessions[0].Host, "session_item_id", sessions[0].ItemID)
 		return sessions[0], nil
 	}
 	return nil, fmt.Errorf("no valid session found for item")
