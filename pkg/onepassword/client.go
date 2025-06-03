@@ -17,8 +17,9 @@ import (
 )
 
 type Client struct {
-	Vault string
-	Tags  []string
+	Vault   string
+	Tags    []string
+	checked bool // Track if 1Password has been checked for this session
 }
 
 type Vault struct {
@@ -188,6 +189,17 @@ func check1Password() error {
 	return nil
 }
 
+// ensureChecked calls check1Password only once per client session
+func (c *Client) ensureChecked() error {
+	if !c.checked {
+		if err := check1Password(); err != nil {
+			return err
+		}
+		c.checked = true
+	}
+	return nil
+}
+
 func (opi *OPItem) extractFields() itemFields {
 	fields := itemFields{}
 
@@ -338,7 +350,7 @@ func (c *Client) ListVaults(name ...string) (map[string]string, error) {
 }
 
 func (c *Client) exec(args []string, data any) error {
-	if err := check1Password(); err != nil {
+	if err := c.ensureChecked(); err != nil {
 		return err
 	}
 
@@ -368,7 +380,7 @@ func (c *Client) exec(args []string, data any) error {
 }
 
 func (c *Client) List(name ...string) ([]*core.CumulocitySession, error) {
-	if err := check1Password(); err != nil {
+	if err := c.ensureChecked(); err != nil {
 		return nil, err
 	}
 
@@ -540,7 +552,7 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 // bulkGetItems efficiently fetches detailed item information using piped commands
 // This eliminates N+1 queries by using: op item list ... | op item get -
 func (c *Client) bulkGetItems(listArgs []string) ([]OPItem, error) {
-	if err := check1Password(); err != nil {
+	if err := c.ensureChecked(); err != nil {
 		return nil, err
 	}
 
@@ -673,7 +685,7 @@ func ParseOPURI(uri string) (vault, item string, err error) {
 
 // GetItem retrieves a specific item from 1Password by vault and item identifier
 func (c *Client) GetItem(vaultIdentifier, itemIdentifier string) (*core.CumulocitySession, error) {
-	if err := check1Password(); err != nil {
+	if err := c.ensureChecked(); err != nil {
 		return nil, err
 	}
 
@@ -710,7 +722,7 @@ func (c *Client) getItemFromVault(vaultIdentifier, itemIdentifier string) (*core
 	}
 
 	start := time.Now()
-	slog.Debug("op " + strings.Join(args, " "))
+	slog.Debug("op command", "command", "op "+strings.Join(args, " "))
 	cmd := exec.Command("op", args...)
 	output, err := cmd.Output()
 	duration := time.Since(start)
