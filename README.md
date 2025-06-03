@@ -19,12 +19,17 @@ Or download from [GitHub Releases](https://github.com/thomaswinkler/c8y-session-
 
 ## Integration with go-c8y-cli
 
-**Interactive session picker:**
+**Interactive session picker (searches all vaults):**
 ```bash
 eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)
 ```
 
-**Direct session access:**
+**Direct session access (searches all vaults for item):**
+```bash
+eval $(c8y sessions login --from-cmd "c8y-session-1password --item Production --reveal" --shell auto)
+```
+
+**Direct session access from specific vault:**
 ```bash
 eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Employee --item Production --reveal" --shell auto)
 ```
@@ -36,7 +41,40 @@ export C8YOP_ITEM="Production"
 eval $(c8y sessions login --from-cmd "c8y-session-1password" --reveal --shell auto)
 ```
 
+**Searching multiple vaults:**
+```bash
+export C8YOP_VAULT="Employee,Shared"
+eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)
+```
+
 ## 1Password Setup
+
+### Authentication
+
+The 1Password CLI supports multiple authentication methods:
+
+#### Interactive Authentication (Desktop/Personal Use)
+For personal use with the 1Password desktop app:
+```bash
+op signin
+```
+Requires the 1Password desktop application to be running.
+
+#### Service Account Authentication (Automated/CI/CD)
+For automated environments using 1Password Service Accounts:
+```bash
+export OP_SERVICE_ACCOUNT_TOKEN="your-service-account-token"
+```
+No desktop app required. Ideal for CI/CD pipelines and server environments.
+
+#### 1Password Connect (Self-Hosted)
+For organizations using 1Password Connect Server:
+```bash
+export OP_CONNECT_HOST="https://your-connect-server"
+export OP_CONNECT_TOKEN="your-connect-token"
+```
+
+### Item Structure
 
 Structure your 1Password login items with:
 - **Title**: Session name
@@ -56,22 +94,30 @@ Items with multiple URLs in the 1Password URLs section will create separate sess
 - **URL labels** are used to distinguish between environments (e.g., "Production", "Staging")
 - **Fallback behavior**: If no URLs section exists, falls back to Website/URL fields
 
-## Configuration
+## Usage
 
 ### Environment Variables
-- `C8YOP_VAULT` - Default vault(s) to search (comma-separated: `"Employee,Shared"`)
+- `C8YOP_VAULT` - Default vault(s) to search (comma-separated: `"Employee,Shared"`, optional - if not provided, searches all vaults)
 - `C8YOP_TAGS` - Filter tags (defaults to `"c8y"`)
 - `C8YOP_ITEM` - Default item name or ID
+- `C8YOP_LOG_LEVEL` - Logging level (`debug`, `info`, `warn`, `error`; defaults to `info`)
+- `LOG_LEVEL` - Alternative to `C8YOP_LOG_LEVEL` (C8YOP_LOG_LEVEL takes precedence)
 
 ### Command Line Options
 ```bash
-# Interactive picker (passwords obfuscated by default)
+# Interactive picker from all vaults (passwords obfuscated by default)
+c8y-session-1password list
+
+# Interactive picker from specific vault(s) (passwords obfuscated by default)
 c8y-session-1password list --vault "Employee" --tags "c8y,prod"
 
 # Interactive picker with revealed passwords
 c8y-session-1password list --vault "Employee" --tags "c8y,prod" --reveal
 
-# Direct access (passwords obfuscated by default)
+# Direct access from all vaults (vault is optional)
+c8y-session-1password --item "Production"
+
+# Direct access from specific vault (passwords obfuscated by default)
 c8y-session-1password --vault "Employee" --item "Production"
 c8y-session-1password --uri "op://Employee/Production"
 
@@ -93,47 +139,49 @@ By default, both commands obfuscate sensitive information (passwords, TOTP secre
 
 This approach prioritizes security by requiring explicit use of `--reveal` when you need to see sensitive credentials.
 
-## Shell Integration
+### Debugging and Logging
 
-### Recommended Aliases
-
-Add these aliases to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.):
+Enable debug logging to troubleshoot 1Password integration issues:
 
 ```bash
-# Quick session login with interactive picker
-alias c8y-op='eval $(c8y sessions login --from-cmd "c8y-session-1password list" --reveal --shell auto)'
+# Enable debug logging (recommended - consistent with other C8YOP_ variables)
+export C8YOP_LOG_LEVEL=debug
+c8y-session-1password list
 
-# Quick session login with revealed passwords (for debugging)
-alias c8y-op-debug='eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)'
+# Alternative using LOG_LEVEL
+export LOG_LEVEL=debug
+c8y-session-1password list
 
-# Add other aliases as needed
-alias c8y-xyz-session='eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Shared --item xyz" --reveal --shell auto)'
+# Or inline
+C8YOP_LOG_LEVEL=debug c8y-session-1password --item "Production"
+LOG_LEVEL=debug c8y-session-1password --item "Production"
 ```
 
-### Environment Configuration
+Available log levels:
+- `debug` - Detailed operational information (fetching items, API calls)
+- `info` - General information (default)
+- `warn`, `warning` - Warning messages
+- `error` - Error messages only
+
+Debug logging is particularly useful for:
+- Troubleshooting 1Password CLI connectivity
+- Understanding which vaults and items are being searched
+- Performance analysis of bulk vs individual item fetching
+
+## Environment Configuration
 
 For automated environments or when working with specific projects, set these in your shell profile:
 
 ```bash
-# Default configuration
+# Default configuration (searches specific vaults)
 export C8YOP_VAULT="Employee,Shared"
+export C8YOP_TAGS="c8y"
+
+# Alternative: search all vaults (omit C8YOP_VAULT)
 export C8YOP_TAGS="c8y"
 
 # Project-specific configuration (optional)
 export C8YOP_ITEM="MyProject-Dev"
-```
-
-### Usage Examples
-
-```bash
-# Interactive session selection
-c8y-op
-
-# Quick environment switching  
-c8y-xyz-session
-
-# One-time vault override
-eval $(c8y sessions login --from-cmd "c8y-session-1password list --vault Personal" --reveal --shell auto)
 ```
 
 ## Development

@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -28,15 +29,18 @@ Pre-requisites:
 
  * 1Password CLI (op) - https://developer.1password.com/docs/cli/
 
-Sign in to your 1Password account from the command line
-
-	$ op signin
+Authentication options:
+ * Interactive: Sign in to your 1Password account: op signin
+ * Service Account: Set OP_SERVICE_ACCOUNT_TOKEN environment variable
+ * 1Password Connect: Set OP_CONNECT_HOST and OP_CONNECT_TOKEN environment variables
 
 Environment Variables:
 
  * C8YOP_VAULT - Default vault to search in (can be vault name or ID)
+                 If not provided, searches all vaults
  * C8YOP_TAGS - Default tags to filter by (comma-separated, defaults to "c8y" if not set)
  * C8YOP_ITEM - Default item to retrieve (item ID or name)
+ * C8YOP_LOG_LEVEL - Logging level (debug, info, warn, error; defaults to info)
  
  For compatibility, CYOP_* variants are also supported:
  * CYOP_VAULT - Fallback for C8YOP_VAULT
@@ -45,7 +49,8 @@ Environment Variables:
 
 Usage modes:
  * No arguments: Interactive session selection (same as 'list' command)
- * With --vault and --item: Direct item retrieval
+ * With --item: Direct item retrieval (searches all vaults if --vault not specified)
+ * With --vault and --item: Direct item retrieval from specific vault(s)
  * With --uri: Direct item retrieval using op://vault/item format
 
 By default, sensitive information (passwords, TOTP secrets) is obfuscated in the output.
@@ -100,8 +105,8 @@ Use --reveal to show the actual values.`,
 		// Get tags using helper function (needed for both direct and interactive access)
 		tags := parseTags("")
 
-		// If we have both vault and item, get the item directly
-		if vault != "" && item != "" {
+		// If we have a specific item, get it directly (vault is optional)
+		if item != "" {
 			client := onepassword.NewClient(vault, tags...)
 			session, err := client.GetItem(vault, item)
 			if err != nil {
@@ -142,8 +147,40 @@ func Execute() {
 	}
 }
 
+// setupLogging configures slog based on C8YOP_LOG_LEVEL or LOG_LEVEL environment variable
+func setupLogging() {
+	// Check C8YOP_LOG_LEVEL first for consistency, fallback to LOG_LEVEL
+	logLevel := os.Getenv("C8YOP_LOG_LEVEL")
+	if logLevel == "" {
+		logLevel = os.Getenv("LOG_LEVEL")
+	}
+	var level slog.Level
+
+	switch strings.ToLower(logLevel) {
+	case "debug":
+		level = slog.LevelDebug
+	case "info":
+		level = slog.LevelInfo
+	case "warn", "warning":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo // Default to info level
+	}
+
+	// Create a new logger with the specified level
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: level,
+	}))
+
+	// Set as the default logger
+	slog.SetDefault(logger)
+}
+
 func init() {
-	rootCmd.Flags().String("vault", "", "Vault name or ID (defaults to C8YOP_VAULT or CYOP_VAULT env var)")
+	setupLogging()
+	rootCmd.Flags().String("vault", "", "Vault name or ID (optional - if not provided, searches all vaults; defaults to C8YOP_VAULT or CYOP_VAULT env var)")
 	rootCmd.Flags().String("item", "", "Specific item ID or name to retrieve (defaults to C8YOP_ITEM or CYOP_ITEM env var)")
 	rootCmd.Flags().String("uri", "", "op://vault/item URI to retrieve specific item")
 	rootCmd.Flags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
