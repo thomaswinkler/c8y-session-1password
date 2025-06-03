@@ -127,7 +127,7 @@ LOG_LEVEL=debug c8y-session-1password --item "Production"
 Available log levels:
 - `debug` - Detailed operational information (fetching items, API calls)
 - `info` - General information (default)
-- `warn` - Warning messages
+- `warn`, `warning` - Warning messages
 - `error` - Error messages only
 
 Debug logging is particularly useful for:
