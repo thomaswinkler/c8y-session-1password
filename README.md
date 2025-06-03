@@ -108,23 +108,14 @@ Items with multiple URLs in the 1Password URLs section will create separate sess
 # Interactive picker from all vaults (passwords obfuscated by default)
 c8y-session-1password
 
-# Interactive picker from specific vault(s) (passwords obfuscated by default)
-c8y-session-1password --vault "Employee" --tags "c8y,prod"
-
 # Interactive picker with revealed passwords
 c8y-session-1password --vault "Employee" --tags "c8y,prod" --reveal
 
 # Smart filtering - auto-select if only one match, otherwise show picker
-c8y-session-1password production
-c8y-session-1password staging
 c8y-session-1password example.com
 
 # Direct access from all vaults (vault is optional)
 c8y-session-1password --item "Production"
-
-# Direct access from specific vault (passwords obfuscated by default)
-c8y-session-1password --vault "Employee" --item "Production"
-c8y-session-1password --uri "op://Employee/Production"
 
 # Direct access with revealed passwords
 c8y-session-1password --vault "Employee" --item "Production" --reveal
@@ -169,22 +160,6 @@ Debug logging is particularly useful for:
 - Troubleshooting 1Password CLI connectivity
 - Understanding which vaults and items are being searched
 - Performance analysis of bulk vs individual item fetching
-
-## Environment Configuration
-
-For automated environments or when working with specific projects, set these in your shell profile:
-
-```bash
-# Default configuration (searches specific vaults)
-export C8YOP_VAULT="Employee,Shared"
-export C8YOP_TAGS="c8y"
-
-# Alternative: search all vaults (omit C8YOP_VAULT)
-export C8YOP_TAGS="c8y"
-
-# Project-specific configuration (optional)
-export C8YOP_ITEM="MyProject-Dev"
-```
 
 ## Development
 
