@@ -126,22 +126,31 @@ func (opi *OPItem) HasTenantField() bool {
 
 func (opi *OPItem) Skip() bool {
 	if opi.Category != "LOGIN" {
+		slog.Debug("Item skipped: not LOGIN category", "item_id", opi.ID, "category", opi.Category)
 		return true
 	}
 
 	// Don't skip if URLs array has entries
 	if len(opi.URLs) > 0 {
+		slog.Debug("Item accepted: has URLs array", "item_id", opi.ID, "urls_count", len(opi.URLs))
 		return false
 	}
 
 	// Check for URL fields if no urls array
+	urlFieldCount := 0
 	for _, field := range opi.Fields {
 		if isURLField(field) {
-			return false
+			urlFieldCount++
 		}
 	}
 
+	if urlFieldCount > 0 {
+		slog.Debug("Item accepted: has URL fields", "item_id", opi.ID, "url_fields_count", urlFieldCount)
+		return false
+	}
+
 	// Skip if no URLs found anywhere
+	slog.Debug("Item skipped: no URLs found", "item_id", opi.ID, "urls_count", len(opi.URLs), "url_fields_count", urlFieldCount)
 	return true
 }
 
@@ -166,8 +175,13 @@ func check1Password() error {
 	}
 
 	// Check if user is signed in
+	start := time.Now()
+	slog.Debug("op command", "command", "op account get")
 	cmd := exec.Command("op", "account", "get")
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	duration := time.Since(start)
+	slog.Debug("op command completed", "duration_ms", duration.Milliseconds())
+	if err != nil {
 		return fmt.Errorf("not signed in to 1Password. Please run 'op signin' first")
 	}
 
@@ -328,6 +342,8 @@ func (c *Client) exec(args []string, data any) error {
 		return err
 	}
 
+	start := time.Now()
+	slog.Debug("op command", "command", "op "+strings.Join(args, " "))
 	op := exec.Command("op", args...)
 	stdout, err := op.StdoutPipe()
 	if err != nil {
@@ -344,6 +360,8 @@ func (c *Client) exec(args []string, data any) error {
 	// wait for command to finish in background
 	go func() {
 		_ = op.Wait() // ignore error as we already have the data
+		duration := time.Since(start)
+		slog.Debug("op command completed", "duration_ms", duration.Milliseconds())
 	}()
 
 	return parseErr
@@ -355,6 +373,7 @@ func (c *Client) List(name ...string) ([]*core.CumulocitySession, error) {
 	}
 
 	vaultNames := c.parseVaultNames()
+	slog.Debug("Parsed vault names", "vaultNames", vaultNames, "count", len(vaultNames))
 	allSessions := make([]*core.CumulocitySession, 0)
 
 	// If no vaults specified, search all vaults
@@ -389,6 +408,7 @@ func (c *Client) List(name ...string) ([]*core.CumulocitySession, error) {
 		return normalizedI < normalizedJ
 	})
 
+	slog.Debug("List method completed", "total_sessions", len(allSessions), "vaults_searched", len(vaultNames))
 	return allSessions, nil
 }
 
@@ -404,6 +424,7 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 	var vaultErr error
 
 	if vaultName != "" {
+		slog.Debug("Checking vault", "vault", vaultName, "isUID", isUID(vaultName))
 		if isUID(vaultName) {
 			// Filter by vault id (no additional lookup required)
 			listArgs = append(listArgs, "--vault", vaultName)
@@ -413,9 +434,11 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 			if vaultErr != nil {
 				return nil, vaultErr
 			}
+			slog.Debug("Vault lookup result", "vault", vaultName, "found_count", len(vaults))
 			if len(vaults) > 0 {
 				// Use the first matching vault
 				for vaultID := range vaults {
+					slog.Debug("Using vault", "vaultID", vaultID, "vaultName", vaults[vaultID])
 					listArgs = append(listArgs, "--vault", vaultID)
 					break
 				}
@@ -434,7 +457,7 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 		}
 	}
 
-	slog.Debug("Starting optimized fetch", "time", time.Now().Format(time.RFC3339Nano))
+	slog.Debug("Starting optimized fetch")
 
 	// First get the list of items
 	items := make([]OPItem, 0)
@@ -466,7 +489,7 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 		return nil, err
 	}
 
-	slog.Debug("Completed fetch", "count", len(detailedItems), "time", time.Now().Format(time.RFC3339Nano))
+	slog.Debug("Completed fetch", "count", len(detailedItems))
 
 	// Get vault names for proper display if not already loaded
 	if vaults == nil {
@@ -479,6 +502,8 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 
 	sessions := make([]*core.CumulocitySession, 0)
 	for _, item := range detailedItems {
+		slog.Debug("Processing item", "item_id", item.ID, "item_title", item.Title, "category", item.Category, "urls_count", len(item.URLs), "tags", item.Tags)
+
 		if item.Skip() {
 			continue
 		}
@@ -498,6 +523,7 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 				}
 			}
 			if !hasRequiredTag {
+				slog.Debug("Skipping item", "item_id", item.ID, "reason", "missing required tags", "required_tags", c.Tags, "item_tags", item.Tags)
 				continue
 			}
 		}
@@ -507,6 +533,7 @@ func (c *Client) listFromVault(vaultName string) ([]*core.CumulocitySession, err
 		sessions = append(sessions, itemSessions...)
 	}
 
+	slog.Debug("Item filtering completed", "total_items", len(detailedItems), "sessions_created", len(sessions), "vault_name", vaultName)
 	return sessions, nil
 }
 
@@ -516,6 +543,9 @@ func (c *Client) bulkGetItems(listArgs []string) ([]OPItem, error) {
 	if err := check1Password(); err != nil {
 		return nil, err
 	}
+
+	start := time.Now()
+	slog.Debug("op command", "command", "op "+strings.Join(listArgs, " ")+" | op item get - --format json")
 
 	// Create the list command
 	listCmd := exec.Command("op", listArgs...)
@@ -548,6 +578,9 @@ func (c *Client) bulkGetItems(listArgs []string) ([]OPItem, error) {
 	if err := listCmd.Wait(); err != nil {
 		return nil, fmt.Errorf("list command failed: %w", err)
 	}
+
+	duration := time.Since(start)
+	slog.Debug("op command completed", "duration_ms", duration.Milliseconds())
 
 	// Parse multiple JSON objects from the output
 	// The output contains multiple pretty-printed JSON objects
@@ -676,8 +709,12 @@ func (c *Client) getItemFromVault(vaultIdentifier, itemIdentifier string) (*core
 		args = append(args, "--vault", vaultIdentifier)
 	}
 
+	start := time.Now()
+	slog.Debug("op " + strings.Join(args, " "))
 	cmd := exec.Command("op", args...)
 	output, err := cmd.Output()
+	duration := time.Since(start)
+	slog.Debug("op command completed", "duration_ms", duration.Milliseconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get item from 1Password: %w", err)
 	}
@@ -696,7 +733,9 @@ func (c *Client) getItemFromVault(vaultIdentifier, itemIdentifier string) (*core
 
 	// Use mapToSessions to get properly formatted sessions
 	sessions := c.mapToSessions(&item, vaults)
+	slog.Debug("Created sessions for single item", "item_id", item.ID, "item_title", item.Title, "session_count", len(sessions))
 	if len(sessions) > 0 {
+		slog.Debug("Returning first session", "session_host", sessions[0].Host, "session_item_id", sessions[0].ItemID)
 		return sessions[0], nil
 	}
 	return nil, fmt.Errorf("no valid session found for item")

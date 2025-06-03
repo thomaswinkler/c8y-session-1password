@@ -67,12 +67,14 @@ Items with multiple URLs in the 1Password URLs section will create separate sess
 - **URL labels** are used to distinguish between environments (e.g., "Production", "Staging")
 - **Fallback behavior**: If no URLs section exists, falls back to Website/URL fields
 
-## Configuration
+## Usage
 
 ### Environment Variables
 - `C8YOP_VAULT` - Default vault(s) to search (comma-separated: `"Employee,Shared"`, optional - if not provided, searches all vaults)
 - `C8YOP_TAGS` - Filter tags (defaults to `"c8y"`)
 - `C8YOP_ITEM` - Default item name or ID
+- `C8YOP_LOG_LEVEL` - Logging level (`debug`, `info`, `warn`, `error`; defaults to `info`)
+- `LOG_LEVEL` - Alternative to `C8YOP_LOG_LEVEL` (C8YOP_LOG_LEVEL takes precedence)
 
 ### Command Line Options
 ```bash
@@ -110,27 +112,36 @@ By default, both commands obfuscate sensitive information (passwords, TOTP secre
 
 This approach prioritizes security by requiring explicit use of `--reveal` when you need to see sensitive credentials.
 
-## Shell Integration
+### Debugging and Logging
 
-### Recommended Aliases
-
-Add these aliases to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.):
+Enable debug logging to troubleshoot 1Password integration issues:
 
 ```bash
-# Quick session login with interactive picker (searches all vaults)
-alias c8y-op='eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)'
+# Enable debug logging (recommended - consistent with other C8YOP_ variables)
+export C8YOP_LOG_LEVEL=debug
+c8y-session-1password list
 
-# Quick session login with revealed passwords (for debugging)
-alias c8y-op-debug='eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)'
+# Alternative using LOG_LEVEL
+export LOG_LEVEL=debug
+c8y-session-1password list
 
-# Direct item access from all vaults
-alias c8y-find='eval $(c8y sessions login --from-cmd "c8y-session-1password --item xyz --reveal" --shell auto)'
-
-# Add other aliases as needed
-alias c8y-xyz-session='eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Shared --item xyz --reveal" --shell auto)'
+# Or inline
+C8YOP_LOG_LEVEL=debug c8y-session-1password --item "Production"
+LOG_LEVEL=debug c8y-session-1password --item "Production"
 ```
 
-### Environment Configuration
+Available log levels:
+- `debug` - Detailed operational information (fetching items, API calls)
+- `info` - General information (default)
+- `warn`, `warning` - Warning messages
+- `error` - Error messages only
+
+Debug logging is particularly useful for:
+- Troubleshooting 1Password CLI connectivity
+- Understanding which vaults and items are being searched
+- Performance analysis of bulk vs individual item fetching
+
+## Environment Configuration
 
 For automated environments or when working with specific projects, set these in your shell profile:
 
@@ -144,22 +155,6 @@ export C8YOP_TAGS="c8y"
 
 # Project-specific configuration (optional)
 export C8YOP_ITEM="MyProject-Dev"
-```
-
-### Usage Examples
-
-```bash
-# Interactive session selection (searches all vaults)
-c8y-op
-
-# Find specific item across all vaults
-c8y-find Production
-
-# Quick environment switching  
-c8y-xyz-session
-
-# One-time vault override
-eval $(c8y sessions login --from-cmd "c8y-session-1password list --vault Personal" --reveal --shell auto)
 ```
 
 ## Development
