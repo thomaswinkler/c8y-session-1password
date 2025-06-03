@@ -21,7 +21,7 @@ Or download from [GitHub Releases](https://github.com/thomaswinkler/c8y-session-
 
 **Interactive session picker (searches all vaults):**
 ```bash
-eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)
+eval $(c8y sessions login --from-cmd "c8y-session-1password --reveal" --shell auto)
 ```
 
 **Direct session access (searches all vaults for item):**
@@ -38,13 +38,13 @@ eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Employee --i
 ```bash
 export C8YOP_VAULT="Employee"
 export C8YOP_ITEM="Production"
-eval $(c8y sessions login --from-cmd "c8y-session-1password" --reveal --shell auto)
+eval $(c8y sessions login --from-cmd "c8y-session-1password --reveal" --shell auto)
 ```
 
 **Searching multiple vaults:**
 ```bash
 export C8YOP_VAULT="Employee,Shared"
-eval $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell auto)
+eval $(c8y sessions login --from-cmd "c8y-session-1password --reveal" --shell auto)
 ```
 
 ## 1Password Setup
@@ -106,13 +106,18 @@ Items with multiple URLs in the 1Password URLs section will create separate sess
 ### Command Line Options
 ```bash
 # Interactive picker from all vaults (passwords obfuscated by default)
-c8y-session-1password list
+c8y-session-1password
 
 # Interactive picker from specific vault(s) (passwords obfuscated by default)
-c8y-session-1password list --vault "Employee" --tags "c8y,prod"
+c8y-session-1password --vault "Employee" --tags "c8y,prod"
 
 # Interactive picker with revealed passwords
-c8y-session-1password list --vault "Employee" --tags "c8y,prod" --reveal
+c8y-session-1password --vault "Employee" --tags "c8y,prod" --reveal
+
+# Smart filtering - auto-select if only one match, otherwise show picker
+c8y-session-1password production
+c8y-session-1password staging
+c8y-session-1password example.com
 
 # Direct access from all vaults (vault is optional)
 c8y-session-1password --item "Production"
@@ -128,14 +133,11 @@ c8y-session-1password --uri "op://Employee/Production" --reveal
 
 ### Security Features
 
-By default, both commands obfuscate sensitive information (passwords, TOTP secrets) to prevent accidental exposure:
+By default, the command obfuscates sensitive information (passwords, TOTP secrets) to prevent accidental exposure:
 
-- **`list` command**: Obfuscates sensitive information by default (shows `***`)
-  - Use `--reveal` to show actual values
-- **Root command (direct access)**: Obfuscates sensitive information by default (shows `***`)
-  - Use `--reveal` to show actual values
-- **Interactive mode from root**: Obfuscates sensitive information by default (shows `***`)
-  - Use `--reveal` to show actual values
+- All functionality is now provided through a single command interface
+- Passwords, TOTP codes, and TOTP secrets show as `***` by default
+- Use `--reveal` flag to show actual values when needed
 
 This approach prioritizes security by requiring explicit use of `--reveal` when you need to see sensitive credentials.
 
@@ -146,11 +148,11 @@ Enable debug logging to troubleshoot 1Password integration issues:
 ```bash
 # Enable debug logging (recommended - consistent with other C8YOP_ variables)
 export C8YOP_LOG_LEVEL=debug
-c8y-session-1password list
+c8y-session-1password get
 
 # Alternative using LOG_LEVEL
 export LOG_LEVEL=debug
-c8y-session-1password list
+c8y-session-1password get
 
 # Or inline
 C8YOP_LOG_LEVEL=debug c8y-session-1password --item "Production"
