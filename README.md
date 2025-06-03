@@ -91,11 +91,12 @@ $(c8y sessions login --from-cmd "c8y-session-1password list --reveal" --shell au
 
 ### Enable 1Password CLI Access
 
-**Important:** Before using the `c8y-session-1password`, you must enable [1Password CLI](https://developer.1password.com/docs/cli/) in the 1Password desktop application:
-1. Open the 1Password desktop app or [install](https://1password.com/downloads/) 
-2. Go to **Settings** → **Developer** (or **Preferences** → **Advanced** on older versions)
-3. Enable **"Integrate with 1Password CLI"**
-4. Restart the 1Password app if prompted
+> [!IMPORTANT] 
+> Before using the `c8y-session-1password`, you must enable [1Password CLI](https://developer.1password.com/docs/cli/) in the 1Password desktop app:
+> 1. Open the 1Password desktop app or [install](https://1password.com/downloads/) 
+> 2. Go to **Settings** → **Developer** (or **Preferences** → **Advanced** on older versions)
+> 3. Enable **"Integrate with 1Password CLI"**
+> 4. Restart the 1Password app if prompted
 
 ### Authentication
 
@@ -109,7 +110,7 @@ For personal use with the 1Password desktop app:
 op signin
 ```
 
-Signin requires the 1Password desktop application to be running and CLI integration enabled.
+Signin requires the 1Password desktop app to be running and CLI integration enabled.
 
 #### Service Account Authentication (Automated/CI/CD)
 
