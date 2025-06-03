@@ -28,6 +28,7 @@ var rootCmd = &cobra.Command{
 Pre-requisites:
 
  * 1Password CLI (op) - https://developer.1password.com/docs/cli/
+ * Enable "Integrate with 1Password CLI" in 1Password app settings (Developer/Advanced section)
 
 Authentication options:
  * Interactive: Sign in to your 1Password account: op signin
