@@ -55,7 +55,7 @@ Environment Variables:
  * C8YOP_TAGS - Default tags to filter by (comma-separated, defaults to "c8y" if not set)
  * C8YOP_ITEM - Default item to retrieve (item ID or name)
  * C8YOP_LOG_LEVEL - Logging level (debug, info, warn, error; defaults to info)`,
-	Args:         cobra.ArbitraryArgs,
+	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vault, err := cmd.Flags().GetString("vault")
