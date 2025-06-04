@@ -200,7 +200,7 @@ There is flexibility in how you configure URLs for Cumulocity instances. If ther
 
 URLs should be absolute URLs pointing to the Cumulocity instance, e.g. `https://myinstance.cumulocity.com`. The url will be used to identify the session in the picker. The label of the field, also if customized, is not used for the session or it's presentation in the picker.
 
-Following fields will be searched for URLs:
+The following fields will be searched for URLs:
 
 - Create one or more `website` fields
 - Create custom fields with **Type**: `URL`
@@ -212,7 +212,7 @@ Following fields will be searched for URLs:
 
 ### Optional Fields
 
-Currently, only `tenant` field is supported as an optional field. If configured in the 1Password item, it's value will be passed as teant id to `go-c8y-cli`. As `go-c8y-cli` determines the tenant id automatically, this is only needed if you really want to override the tenant id.
+Currently, only `tenant` field is supported as an optional field. If configured in the 1Password item, it's value will be passed as tenant id to `go-c8y-cli`. As `go-c8y-cli` determines the tenant id automatically, this is only needed if you really want to override the tenant id.
 
 ### Summary and Troubleshooting
 
