@@ -4,11 +4,21 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/thomaswinkler/c8y-session-1password/pkg/core"
 )
 
 func newItemDelegate(keys *delegateKeyMap) list.DefaultDelegate {
 	d := list.NewDefaultDelegate()
+
+	// Set custom selection highlight color
+	d.Styles.SelectedTitle = d.Styles.SelectedTitle.
+		Foreground(lipgloss.Color("#056AD6")).
+		BorderForeground(lipgloss.Color("#056AD6"))
+
+	d.Styles.SelectedDesc = d.Styles.SelectedDesc.
+		Foreground(lipgloss.Color("#056AD6")).
+		BorderForeground(lipgloss.Color("#056AD6"))
 
 	d.UpdateFunc = func(msg tea.Msg, m *list.Model) tea.Cmd {
 		var title string

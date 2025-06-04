@@ -160,7 +160,13 @@ Environment Variables:
 			return outputSession(session, reveal)
 		} else {
 			// Multiple sessions found, use interactive picker
-			session, err := picker.Pick(filteredSessions)
+			vaultList := splitAndTrimString(vault)
+			metadata := picker.PickerMetadata{
+				Vaults: vaultList,
+				Tags:   tags,
+				Filter: filter,
+			}
+			session, err := picker.Pick(filteredSessions, metadata)
 			if err != nil {
 				return err
 			}

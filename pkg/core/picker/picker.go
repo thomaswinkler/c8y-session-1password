@@ -3,6 +3,7 @@ package picker
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -12,16 +13,23 @@ import (
 	"github.com/thomaswinkler/c8y-session-1password/pkg/core"
 )
 
+// PickerMetadata holds information about the query parameters used
+type PickerMetadata struct {
+	Vaults []string
+	Tags   []string
+	Filter string
+}
+
 var (
 	appStyle = lipgloss.NewStyle().Padding(1, 2)
 
 	titleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFDF5")).
-			Background(lipgloss.Color("#007AFF")).
+			Foreground(lipgloss.Color("#212121")).
+			Background(lipgloss.Color("#FFBE00")).
 			Padding(0, 1)
 
 	statusMessageStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{Light: "#04B575", Dark: "#04B575"}).
+				Foreground(lipgloss.AdaptiveColor{Light: "#056AD6", Dark: "#056AD6"}).
 				Render
 )
 
@@ -74,9 +82,10 @@ type model struct {
 	keys          *listKeyMap
 	delegateKeys  *delegateKeyMap
 	wasSelected   bool
+	metadata      PickerMetadata
 }
 
-func newModel(itemGenerator randomItemGenerator) model {
+func newModel(itemGenerator randomItemGenerator, metadata PickerMetadata) model {
 	var (
 		delegateKeys = newDelegateKeyMap()
 		listKeys     = newListKeyMap()
@@ -91,8 +100,14 @@ func newModel(itemGenerator randomItemGenerator) model {
 	// Setup list
 	delegate := newItemDelegate(delegateKeys)
 	sessionList := list.New(items, delegate, 0, 0)
-	sessionList.Title = "Sessions"
+
+	// Build title with metadata information
+	title := buildTitle(itemGenerator.Len(), metadata)
+	sessionList.Title = title
 	sessionList.Styles.Title = titleStyle
+
+	// Hide the status bar by default (which shows "X items")
+	sessionList.SetShowStatusBar(false)
 
 	sessionList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
@@ -111,6 +126,7 @@ func newModel(itemGenerator randomItemGenerator) model {
 		keys:          listKeys,
 		delegateKeys:  delegateKeys,
 		itemGenerator: &itemGenerator,
+		metadata:      metadata,
 	}
 }
 
@@ -187,12 +203,12 @@ func (m model) View() string {
 	return appStyle.Render(m.list.View())
 }
 
-func Pick(sessions []*core.CumulocitySession) (*core.CumulocitySession, error) {
+func Pick(sessions []*core.CumulocitySession, metadata PickerMetadata) (*core.CumulocitySession, error) {
 	itemGenerator := randomItemGenerator{
 		sessions: sessions,
 	}
 
-	m, err := tea.NewProgram(newModel(itemGenerator), tea.WithAltScreen(), tea.WithOutput(os.Stderr)).Run()
+	m, err := tea.NewProgram(newModel(itemGenerator, metadata), tea.WithAltScreen(), tea.WithOutput(os.Stderr)).Run()
 	if err != nil {
 		os.Exit(1)
 	}
@@ -206,4 +222,51 @@ func Pick(sessions []*core.CumulocitySession) (*core.CumulocitySession, error) {
 	}
 
 	return nil, fmt.Errorf("empty")
+}
+
+func (pm PickerMetadata) String() string {
+	var b strings.Builder
+
+	if len(pm.Vaults) > 0 {
+		b.WriteString("Vaults: " + strings.Join(pm.Vaults, ", ") + "\n")
+	}
+
+	if len(pm.Tags) > 0 {
+		b.WriteString("Tags: " + strings.Join(pm.Tags, ", ") + "\n")
+	}
+
+	if pm.Filter != "" {
+		b.WriteString("Filter: " + pm.Filter + "\n")
+	}
+
+	return b.String()
+}
+
+// buildTitle creates a descriptive title showing session count, vaults, and tags
+func buildTitle(sessionCount int, metadata PickerMetadata) string {
+	parts := []string{fmt.Sprintf("Sessions (%d)", sessionCount)}
+
+	if len(metadata.Vaults) > 0 {
+		if len(metadata.Vaults) == 1 {
+			parts = append(parts, fmt.Sprintf("Vault: %s", metadata.Vaults[0]))
+		} else {
+			parts = append(parts, fmt.Sprintf("Vaults: %s", strings.Join(metadata.Vaults, ", ")))
+		}
+	} else {
+		parts = append(parts, "All Vaults")
+	}
+
+	if len(metadata.Tags) > 0 {
+		if len(metadata.Tags) == 1 {
+			parts = append(parts, fmt.Sprintf("Tag: %s", metadata.Tags[0]))
+		} else {
+			parts = append(parts, fmt.Sprintf("Tags: %s", strings.Join(metadata.Tags, ", ")))
+		}
+	}
+
+	if metadata.Filter != "" {
+		parts = append(parts, fmt.Sprintf("Filter: %s", metadata.Filter))
+	}
+
+	return strings.Join(parts, " • ")
 }
