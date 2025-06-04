@@ -21,13 +21,28 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "c8y-session-1password",
+	Use:   "c8y-session-1password [filter]",
 	Short: "go-c8y-cli 1Password session selector",
-	Long: `Select a session from your 1Password password manager
+	Long: `Smart go-c8y-cli session picker from 1Password vaults
+
+This command provides smart filtering and selection of sessions:
+- Shows interactive picker for multiple sessions matching the filter
+- Automatically returns the session when filter matches exactly one item
+- Filter matches against session names, item names, and URLs
+- Support multiple urls per 1Password item showing one session per URL
+
+By default, sensitive information (passwords, TOTP secrets) is obfuscated in the output.
+Use --reveal to show the actual values.
+
+Direct item access:
+- Use --item flag for direct item retrieval by ID or name
+- Use --uri flag for direct item retrieval using op://vault/item format
+- Use --vault flag to limit searches to specific vault(s)
 
 Pre-requisites:
 
  * 1Password CLI (op) - https://developer.1password.com/docs/cli/
+ * Use with go-c8y-cli - https://goc8ycli.netlify.app
 
 Authentication options:
  * Interactive: Sign in to your 1Password account: op signin
@@ -37,24 +52,10 @@ Authentication options:
 Environment Variables:
 
  * C8YOP_VAULT - Default vault to search in (can be vault name or ID)
-                 If not provided, searches all vaults
  * C8YOP_TAGS - Default tags to filter by (comma-separated, defaults to "c8y" if not set)
  * C8YOP_ITEM - Default item to retrieve (item ID or name)
- * C8YOP_LOG_LEVEL - Logging level (debug, info, warn, error; defaults to info)
- 
- For compatibility, CYOP_* variants are also supported:
- * CYOP_VAULT - Fallback for C8YOP_VAULT
- * CYOP_TAGS - Fallback for C8YOP_TAGS (defaults to "c8y" if neither is set)
- * CYOP_ITEM - Fallback for C8YOP_ITEM
-
-Usage modes:
- * No arguments: Interactive session selection (same as 'list' command)
- * With --item: Direct item retrieval (searches all vaults if --vault not specified)
- * With --vault and --item: Direct item retrieval from specific vault(s)
- * With --uri: Direct item retrieval using op://vault/item format
-
-By default, sensitive information (passwords, TOTP secrets) is obfuscated in the output.
-Use --reveal to show the actual values.`,
+ * C8YOP_LOG_LEVEL - Logging level (debug, info, warn, error; defaults to info)`,
+	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vault, err := cmd.Flags().GetString("vault")
@@ -73,9 +74,20 @@ Use --reveal to show the actual values.`,
 			return err
 		}
 
+		tagsFlag, err := cmd.Flags().GetString("tags")
+		if err != nil {
+			return err
+		}
+
 		reveal, err := cmd.Flags().GetBool("reveal")
 		if err != nil {
 			return err
+		}
+
+		// Get filter argument if provided
+		var filter string
+		if len(args) > 0 {
+			filter = args[0]
 		}
 
 		// Get default values from environment variables
@@ -102,8 +114,8 @@ Use --reveal to show the actual values.`,
 			}
 		}
 
-		// Get tags using helper function (needed for both direct and interactive access)
-		tags := parseTags("")
+		// Get tags using helper function
+		tags := parseTags(tagsFlag)
 
 		// If we have a specific item, get it directly (vault is optional)
 		if item != "" {
@@ -119,24 +131,42 @@ Use --reveal to show the actual values.`,
 			return outputSession(session, reveal)
 		}
 
-		// If no specific item is requested, fall back to interactive list
-
+		// Interactive/filtered selection mode
 		client := onepassword.NewClient(vault, tags...)
 		sessions, err := client.List()
 		if err != nil {
 			return err
 		}
 
-		// Use interactive picker
-		session, err := picker.Pick(sessions)
-		if err != nil {
-			return err
+		if len(sessions) == 0 {
+			return fmt.Errorf("no sessions found matching tags: %v", tags)
 		}
 
-		// Populate session details and TOTP from the full session list
-		populateSessionFromList(session, sessions)
+		// Apply filter if provided
+		filteredSessions := sessions
+		if filter != "" {
+			filteredSessions = core.FilterSessions(sessions, filter)
+		}
 
-		return outputSession(session, reveal)
+		// Smart selection behavior
+		if len(filteredSessions) == 0 {
+			return fmt.Errorf("no sessions found matching filter: %s", filter)
+		} else if len(filteredSessions) == 1 {
+			// Auto-select the single matching session
+			session := filteredSessions[0]
+			// Populate session details and TOTP from the full session list
+			populateSessionFromList(session, sessions)
+			return outputSession(session, reveal)
+		} else {
+			// Multiple sessions found, use interactive picker
+			session, err := picker.Pick(filteredSessions)
+			if err != nil {
+				return err
+			}
+			// Populate session details and TOTP from the full session list
+			populateSessionFromList(session, sessions)
+			return outputSession(session, reveal)
+		}
 	},
 }
 
@@ -180,9 +210,10 @@ func setupLogging() {
 
 func init() {
 	setupLogging()
-	rootCmd.Flags().String("vault", "", "Vault name or ID (optional - if not provided, searches all vaults; defaults to C8YOP_VAULT or CYOP_VAULT env var)")
-	rootCmd.Flags().String("item", "", "Specific item ID or name to retrieve (defaults to C8YOP_ITEM or CYOP_ITEM env var)")
-	rootCmd.Flags().String("uri", "", "op://vault/item URI to retrieve specific item")
+	rootCmd.Flags().String("vault", "", "Vault name or ID (optional - if not provided, use C8YOP_VAULT env var or use all vaults)")
+	rootCmd.Flags().String("item", "", "Specific item ID or name to retrieve (defaults to C8YOP_ITEM env var)")
+	rootCmd.Flags().String("uri", "", "Specific item with op://vault/item URI")
+	rootCmd.Flags().String("tags", "", "Comma-separated tags to filter by (defaults to C8YOP_TAGS env var, then 'c8y')")
 	rootCmd.Flags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
 	rootCmd.AddCommand(versionCmd)
 }
