@@ -42,6 +42,7 @@ Direct item access:
 Pre-requisites:
 
  * 1Password CLI (op) - https://developer.1password.com/docs/cli/
+ * Enable "Integrate with 1Password CLI" in 1Password app settings (Developer/Advanced section)
  * Use with go-c8y-cli - https://goc8ycli.netlify.app
 
 Authentication options:
