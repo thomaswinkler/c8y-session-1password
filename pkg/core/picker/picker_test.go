@@ -234,6 +234,15 @@ func TestPickerMetadataString(t *testing.T) {
 			expected: "Filter: production\n",
 		},
 		{
+			name: "vaults and filter, no tags",
+			metadata: PickerMetadata{
+				Vaults: []string{"Employee", "Personal"},
+				Tags:   []string{},
+				Filter: "staging",
+			},
+			expected: "Vaults: Employee, Personal\nFilter: staging\n",
+		},
+		{
 			name: "empty metadata",
 			metadata: PickerMetadata{
 				Vaults: []string{},
