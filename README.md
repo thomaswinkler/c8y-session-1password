@@ -105,7 +105,8 @@ Items with multiple URLs in the 1Password URLs section will create separate sess
 
 ### Command Line Options
 ```bash
-# Interactive picker from all vaults (passwords obfuscated by default)
+# Interactive picker from all vaults listing all items with `c8y` (default) tag
+# (passwords obfuscated by default)
 c8y-session-1password
 
 # Interactive picker with revealed passwords
@@ -139,11 +140,11 @@ Enable debug logging to troubleshoot 1Password integration issues:
 ```bash
 # Enable debug logging (recommended - consistent with other C8YOP_ variables)
 export C8YOP_LOG_LEVEL=debug
-c8y-session-1password get
+c8y-session-1password
 
 # Alternative using LOG_LEVEL
 export LOG_LEVEL=debug
-c8y-session-1password get
+c8y-session-1password
 
 # Or inline
 C8YOP_LOG_LEVEL=debug c8y-session-1password --item "Production"
