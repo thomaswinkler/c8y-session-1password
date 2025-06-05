@@ -11,14 +11,23 @@ import (
 func newItemDelegate(keys *delegateKeyMap) list.DefaultDelegate {
 	d := list.NewDefaultDelegate()
 
-	// Set custom selection highlight color
+	// Set custom selection highlight colors with adaptive support
 	d.Styles.SelectedTitle = d.Styles.SelectedTitle.
-		Foreground(lipgloss.Color("#056AD6")).
-		BorderForeground(lipgloss.Color("#056AD6"))
+		Foreground(lipgloss.Color("#056AD6")). // Blue text for both light and dark terminals
+		Background(lipgloss.Color("")).        // No background
+		BorderForeground(lipgloss.Color("#056AD6")).
+		Bold(true)
 
 	d.Styles.SelectedDesc = d.Styles.SelectedDesc.
-		Foreground(lipgloss.Color("#056AD6")).
-		BorderForeground(lipgloss.Color("#056AD6"))
+		Foreground(lipgloss.AdaptiveColor{
+			Light: "#1F4E79", // Even darker blue for better readability in light terminals
+			Dark:  "#3A8BDB", // Keep existing lighter blue for dark terminals
+		}).
+		Background(lipgloss.Color("")). // No background
+		BorderForeground(lipgloss.AdaptiveColor{
+			Light: "#1F4E79", // Match border to description text color
+			Dark:  "#3A8BDB",
+		})
 
 	d.UpdateFunc = func(msg tea.Msg, m *list.Model) tea.Cmd {
 		var title string

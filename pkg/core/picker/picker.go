@@ -13,24 +13,100 @@ import (
 	"github.com/thomaswinkler/c8y-session-1password/pkg/core"
 )
 
+// isInCommandSubstitution detects if we're running in command substitution context
+// GetTerminalColorProfile determines the best color profile for the terminal (exported version)
+func GetTerminalColorProfile() termenv.Profile {
+	return getTerminalColorProfile()
+}
+
+// getTerminalColorProfile determines the best color profile for the terminal
+func getTerminalColorProfile() termenv.Profile {
+	// First, get the natural color profile detection
+	profile := termenv.ColorProfile()
+
+	// Debug output
+	if os.Getenv("C8YOP_DEBUG") != "" {
+		fmt.Fprintf(os.Stderr, "getTerminalColorProfile: initial profile=%v, inCommandSub=%v, TERM=%s\n",
+			profile, isInCommandSubstitution(), os.Getenv("TERM"))
+	}
+
+	// If we're in command substitution and colors are disabled,
+	// we need to determine what the terminal would support if it were direct
+	if profile == termenv.Ascii && isInCommandSubstitution() {
+		// Check terminal type to determine appropriate color support
+		termType := os.Getenv("TERM")
+
+		var newProfile termenv.Profile
+		switch {
+		case strings.Contains(termType, "256color"):
+			newProfile = termenv.ANSI256
+		case strings.Contains(termType, "color"):
+			newProfile = termenv.ANSI
+		case termType == "xterm-256color" || termType == "screen-256color":
+			newProfile = termenv.ANSI256
+		case termType == "xterm" || termType == "screen":
+			newProfile = termenv.ANSI
+		default:
+			// Conservative fallback for unknown terminals
+			newProfile = termenv.ANSI
+		}
+
+		if os.Getenv("C8YOP_DEBUG") != "" {
+			fmt.Fprintf(os.Stderr, "getTerminalColorProfile: overriding %v -> %v for term=%s\n",
+				profile, newProfile, termType)
+		}
+
+		return newProfile
+	}
+
+	return profile
+}
+
+func isInCommandSubstitution() bool {
+	// Check if stdout is not a terminal (common in command substitution)
+	stat, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+
+	// If output is being piped or redirected, we're likely in command substitution
+	mode := stat.Mode()
+	if (mode & os.ModeCharDevice) == 0 {
+		return true
+	}
+
+	// Additional check: look for common command substitution patterns
+	// Check if SHLVL indicates we're in a subshell
+	if shlvl := os.Getenv("SHLVL"); shlvl != "" && shlvl != "1" {
+		// This is a heuristic - we might be in a subshell
+		return true
+	}
+
+	return false
+}
+
 // PickerMetadata holds information about the query parameters used
 type PickerMetadata struct {
-	Vaults []string
-	Tags   []string
-	Filter string
+	Vaults  []string
+	Tags    []string
+	Filter  string
+	NoColor bool
 }
 
 var (
-	appStyle = lipgloss.NewStyle().Padding(1, 2)
-
+	appStyle   = lipgloss.NewStyle().Padding(1, 2)
 	titleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#212121")).
-			Background(lipgloss.Color("#FFBE00")).
-			Padding(0, 1)
+			Foreground(lipgloss.AdaptiveColor{
+			Light: "#119D11", // Green text for light terminals
+			Dark:  "#FFBE00", // Yellow text for dark terminals
+		})
 
 	statusMessageStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{Light: "#056AD6", Dark: "#056AD6"}).
-				Render
+				Foreground(lipgloss.AdaptiveColor{
+			Light: "#056AD6", // Blue for light terminals
+			Dark:  "#56C8FF", // Lighter blue for dark terminals
+		}).
+		Render
 )
 
 type listKeyMap struct {
@@ -135,8 +211,24 @@ func (m model) WasSelected() bool {
 }
 
 func (m model) Init() tea.Cmd {
-	// TODO: How to detect a fitting profile
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	var profile termenv.Profile
+
+	// Check if colors should be disabled
+	if m.metadata.NoColor {
+		profile = termenv.Ascii
+	} else {
+		// Use our improved color detection
+		profile = getTerminalColorProfile()
+	}
+
+	lipgloss.SetColorProfile(profile)
+
+	// Log color profile for debugging if debug mode is enabled
+	if os.Getenv("C8YOP_DEBUG") != "" {
+		fmt.Fprintf(os.Stderr, "Terminal: %s, Color profile: %v, NoColor: %v, InCommandSubstitution: %v\n",
+			os.Getenv("TERM"), profile, m.metadata.NoColor, isInCommandSubstitution())
+	}
+
 	return nil
 }
 

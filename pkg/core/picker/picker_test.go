@@ -262,3 +262,102 @@ func TestPickerMetadataString(t *testing.T) {
 		})
 	}
 }
+
+func TestPickerMetadataNoColor(t *testing.T) {
+	tests := []struct {
+		name     string
+		metadata PickerMetadata
+		expected bool
+	}{
+		{
+			name: "no color disabled by default",
+			metadata: PickerMetadata{
+				Vaults: []string{"Employee"},
+				Tags:   []string{"c8y"},
+				Filter: "",
+			},
+			expected: false,
+		},
+		{
+			name: "no color explicitly disabled",
+			metadata: PickerMetadata{
+				Vaults:  []string{"Employee"},
+				Tags:    []string{"c8y"},
+				Filter:  "",
+				NoColor: false,
+			},
+			expected: false,
+		},
+		{
+			name: "no color enabled",
+			metadata: PickerMetadata{
+				Vaults:  []string{"Employee"},
+				Tags:    []string{"c8y"},
+				Filter:  "",
+				NoColor: true,
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.metadata.NoColor != tt.expected {
+				t.Errorf("PickerMetadata.NoColor = %v, expected %v", tt.metadata.NoColor, tt.expected)
+			}
+		})
+	}
+}
+
+func TestBuildTitleWithNoColorMetadata(t *testing.T) {
+	// Test that buildTitle works correctly regardless of NoColor flag
+	metadata := PickerMetadata{
+		Vaults:  []string{"Employee"},
+		Tags:    []string{"c8y"},
+		Filter:  "production",
+		NoColor: true,
+	}
+
+	result := buildTitle(5, metadata)
+	expected := "Sessions (5) • Vault: Employee • Tag: c8y • Filter: production"
+
+	if result != expected {
+		t.Errorf("buildTitle() with NoColor = %q, expected %q", result, expected)
+	}
+}
+
+func TestPickerMetadataColorFlags(t *testing.T) {
+	tests := []struct {
+		name        string
+		metadata    PickerMetadata
+		expectColor bool
+	}{
+		{
+			name: "default - colors enabled",
+			metadata: PickerMetadata{
+				Vaults: []string{"Employee"},
+				Tags:   []string{"c8y"},
+			},
+			expectColor: true,
+		},
+		{
+			name: "no color disabled",
+			metadata: PickerMetadata{
+				Vaults:  []string{"Employee"},
+				Tags:    []string{"c8y"},
+				NoColor: true,
+			},
+			expectColor: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shouldHaveColor := !tt.metadata.NoColor
+			if shouldHaveColor != tt.expectColor {
+				t.Errorf("Expected color support %v, got %v for metadata: NoColor=%v",
+					tt.expectColor, shouldHaveColor, tt.metadata.NoColor)
+			}
+		})
+	}
+}
