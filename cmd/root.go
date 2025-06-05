@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/thomaswinkler/c8y-session-1password/pkg/core"
 	"github.com/thomaswinkler/c8y-session-1password/pkg/core/picker"
@@ -85,6 +86,19 @@ Environment Variables:
 			return err
 		}
 
+		noColor, err := cmd.Flags().GetBool("no-color")
+		if err != nil {
+			return err
+		}
+
+		noColorCompat, err := cmd.Flags().GetBool("noColor")
+		if err != nil {
+			return err
+		}
+
+		// Combine no-color flags (either --no-color or --noColor disables colors)
+		noColorFinal := noColor || noColorCompat
+
 		// Get filter argument if provided
 		var filter string
 		if len(args) > 0 {
@@ -160,7 +174,14 @@ Environment Variables:
 			return outputSession(session, reveal)
 		} else {
 			// Multiple sessions found, use interactive picker
-			session, err := picker.Pick(filteredSessions)
+			vaultList := splitAndTrimString(vault)
+			metadata := picker.PickerMetadata{
+				Vaults:  vaultList,
+				Tags:    tags,
+				Filter:  filter,
+				NoColor: noColorFinal,
+			}
+			session, err := picker.Pick(filteredSessions, metadata)
 			if err != nil {
 				return err
 			}
@@ -211,12 +232,15 @@ func setupLogging() {
 
 func init() {
 	setupLogging()
-	rootCmd.Flags().String("vault", "", "Vault name or ID (optional - if not provided, use C8YOP_VAULT env var or use all vaults)")
-	rootCmd.Flags().String("item", "", "Specific item ID or name to retrieve (defaults to C8YOP_ITEM env var)")
-	rootCmd.Flags().String("uri", "", "Specific item with op://vault/item URI")
-	rootCmd.Flags().String("tags", "", "Comma-separated tags to filter by (defaults to C8YOP_TAGS env var, then 'c8y')")
-	rootCmd.Flags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
+	rootCmd.PersistentFlags().String("vault", "", "Vault name or ID (optional - if not provided, use C8YOP_VAULT env var or use all vaults)")
+	rootCmd.PersistentFlags().String("item", "", "Specific item ID or name to retrieve (defaults to C8YOP_ITEM env var)")
+	rootCmd.PersistentFlags().String("uri", "", "Specific item with op://vault/item URI")
+	rootCmd.PersistentFlags().String("tags", "", "Comma-separated tags to filter by (defaults to C8YOP_TAGS env var, then 'c8y')")
+	rootCmd.PersistentFlags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
+	rootCmd.PersistentFlags().Bool("no-color", false, "Disable colored output in picker")
+	rootCmd.PersistentFlags().Bool("noColor", false, "Disable colored output in picker (go-c8y-cli compatibility)")
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(debugColorsCmd)
 }
 
 var versionCmd = &cobra.Command{
@@ -226,6 +250,62 @@ var versionCmd = &cobra.Command{
 		fmt.Printf("c8y-session-1password version %s\n", Version)
 		fmt.Printf("Commit: %s\n", Commit)
 		fmt.Printf("Built: %s\n", Date)
+	},
+}
+
+var debugColorsCmd = &cobra.Command{
+	Use:    "debug-colors",
+	Hidden: true,
+	Short:  "Test color compatibility across terminals",
+	Run: func(cmd *cobra.Command, args []string) {
+		// Use improved color detection from picker package
+		profile := picker.GetTerminalColorProfile()
+		fmt.Printf("Terminal: %s\n", os.Getenv("TERM"))
+		fmt.Printf("Color profile: %v\n", profile)
+		fmt.Printf("Color support: %s\n", profile.String())
+
+		// Set the detected color profile
+		lipgloss.SetColorProfile(profile)
+
+		// Test title style
+		titleStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{
+				Light: "#119D11", // Green text for light terminals
+				Dark:  "#FFBE00", // Yellow text for dark terminals
+			}).
+			Padding(0, 1)
+
+		// Test selected item style (blue text, no background)
+		selectedStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#056AD6")). // Blue text for both modes
+			Bold(true)
+
+		// Test selected description style
+		selectedDescStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{
+				Light: "#2970B0", // Darker blue for light terminals
+				Dark:  "#3A8BDB", // Lighter blue for dark terminals
+			})
+
+		// Test status message style
+		statusStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{
+				Light: "#056AD6", // Blue for light terminals
+				Dark:  "#56C8FF", // Lighter blue for dark terminals
+			})
+
+		fmt.Println("\nColor Test Results:")
+		fmt.Println(titleStyle.Render("Sessions (3) • Vault: Employee • Tag: c8y"))
+		fmt.Println(selectedStyle.Render("→ Selected Session Item"))
+		fmt.Println("  " + selectedDescStyle.Render("│ Description line with border"))
+		fmt.Println("  Normal session item")
+		fmt.Println(statusStyle.Render("Status message text"))
+
+		fmt.Println("\nIf colors appear correctly:")
+		fmt.Println("✓ Title should have green text (light mode) or yellow text (dark mode)")
+		fmt.Println("✓ Selected item should have blue text (#056AD6) with no background")
+		fmt.Println("✓ Description border (│) should be darker blue (light mode) or light blue (dark mode)")
+		fmt.Println("✓ Status message should be blue/light-blue text")
 	},
 }
 
