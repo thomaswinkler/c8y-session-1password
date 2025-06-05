@@ -3,6 +3,7 @@ package picker
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -12,17 +13,100 @@ import (
 	"github.com/thomaswinkler/c8y-session-1password/pkg/core"
 )
 
-var (
-	appStyle = lipgloss.NewStyle().Padding(1, 2)
+// isInCommandSubstitution detects if we're running in command substitution context
+// GetTerminalColorProfile determines the best color profile for the terminal (exported version)
+func GetTerminalColorProfile() termenv.Profile {
+	return getTerminalColorProfile()
+}
 
+// getTerminalColorProfile determines the best color profile for the terminal
+func getTerminalColorProfile() termenv.Profile {
+	// First, get the natural color profile detection
+	profile := termenv.ColorProfile()
+
+	// Debug output
+	if os.Getenv("C8YOP_DEBUG") != "" {
+		fmt.Fprintf(os.Stderr, "getTerminalColorProfile: initial profile=%v, inCommandSub=%v, TERM=%s\n",
+			profile, isInCommandSubstitution(), os.Getenv("TERM"))
+	}
+
+	// If we're in command substitution and colors are disabled,
+	// we need to determine what the terminal would support if it were direct
+	if profile == termenv.Ascii && isInCommandSubstitution() {
+		// Check terminal type to determine appropriate color support
+		termType := os.Getenv("TERM")
+
+		var newProfile termenv.Profile
+		switch {
+		case strings.Contains(termType, "256color"):
+			newProfile = termenv.ANSI256
+		case strings.Contains(termType, "color"):
+			newProfile = termenv.ANSI
+		case termType == "xterm-256color" || termType == "screen-256color":
+			newProfile = termenv.ANSI256
+		case termType == "xterm" || termType == "screen":
+			newProfile = termenv.ANSI
+		default:
+			// Conservative fallback for unknown terminals
+			newProfile = termenv.ANSI
+		}
+
+		if os.Getenv("C8YOP_DEBUG") != "" {
+			fmt.Fprintf(os.Stderr, "getTerminalColorProfile: overriding %v -> %v for term=%s\n",
+				profile, newProfile, termType)
+		}
+
+		return newProfile
+	}
+
+	return profile
+}
+
+func isInCommandSubstitution() bool {
+	// Check if stdout is not a terminal (common in command substitution)
+	stat, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+
+	// If output is being piped or redirected, we're likely in command substitution
+	mode := stat.Mode()
+	if (mode & os.ModeCharDevice) == 0 {
+		return true
+	}
+
+	// Additional check: look for common command substitution patterns
+	// Check if SHLVL indicates we're in a subshell
+	if shlvl := os.Getenv("SHLVL"); shlvl != "" && shlvl != "1" {
+		// This is a heuristic - we might be in a subshell
+		return true
+	}
+
+	return false
+}
+
+// PickerMetadata holds information about the query parameters used
+type PickerMetadata struct {
+	Vaults  []string
+	Tags    []string
+	Filter  string
+	NoColor bool
+}
+
+var (
+	appStyle   = lipgloss.NewStyle().Padding(1, 2)
 	titleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFDF5")).
-			Background(lipgloss.Color("#007AFF")).
-			Padding(0, 1)
+			Foreground(lipgloss.AdaptiveColor{
+			Light: "#119D11", // Green text for light terminals
+			Dark:  "#FFBE00", // Yellow text for dark terminals
+		})
 
 	statusMessageStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{Light: "#04B575", Dark: "#04B575"}).
-				Render
+				Foreground(lipgloss.AdaptiveColor{
+			Light: "#056AD6", // Blue for light terminals
+			Dark:  "#56C8FF", // Lighter blue for dark terminals
+		}).
+		Render
 )
 
 type listKeyMap struct {
@@ -74,9 +158,10 @@ type model struct {
 	keys          *listKeyMap
 	delegateKeys  *delegateKeyMap
 	wasSelected   bool
+	metadata      PickerMetadata
 }
 
-func newModel(itemGenerator randomItemGenerator) model {
+func newModel(itemGenerator randomItemGenerator, metadata PickerMetadata) model {
 	var (
 		delegateKeys = newDelegateKeyMap()
 		listKeys     = newListKeyMap()
@@ -91,8 +176,14 @@ func newModel(itemGenerator randomItemGenerator) model {
 	// Setup list
 	delegate := newItemDelegate(delegateKeys)
 	sessionList := list.New(items, delegate, 0, 0)
-	sessionList.Title = "Sessions"
+
+	// Build title with metadata information
+	title := buildTitle(itemGenerator.Len(), metadata)
+	sessionList.Title = title
 	sessionList.Styles.Title = titleStyle
+
+	// Hide the status bar by default (which shows "X items")
+	sessionList.SetShowStatusBar(false)
 
 	sessionList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
@@ -111,6 +202,7 @@ func newModel(itemGenerator randomItemGenerator) model {
 		keys:          listKeys,
 		delegateKeys:  delegateKeys,
 		itemGenerator: &itemGenerator,
+		metadata:      metadata,
 	}
 }
 
@@ -119,8 +211,24 @@ func (m model) WasSelected() bool {
 }
 
 func (m model) Init() tea.Cmd {
-	// TODO: How to detect a fitting profile
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	var profile termenv.Profile
+
+	// Check if colors should be disabled
+	if m.metadata.NoColor {
+		profile = termenv.Ascii
+	} else {
+		// Use our improved color detection
+		profile = getTerminalColorProfile()
+	}
+
+	lipgloss.SetColorProfile(profile)
+
+	// Log color profile for debugging if debug mode is enabled
+	if os.Getenv("C8YOP_DEBUG") != "" {
+		fmt.Fprintf(os.Stderr, "Terminal: %s, Color profile: %v, NoColor: %v, InCommandSubstitution: %v\n",
+			os.Getenv("TERM"), profile, m.metadata.NoColor, isInCommandSubstitution())
+	}
+
 	return nil
 }
 
@@ -187,12 +295,12 @@ func (m model) View() string {
 	return appStyle.Render(m.list.View())
 }
 
-func Pick(sessions []*core.CumulocitySession) (*core.CumulocitySession, error) {
+func Pick(sessions []*core.CumulocitySession, metadata PickerMetadata) (*core.CumulocitySession, error) {
 	itemGenerator := randomItemGenerator{
 		sessions: sessions,
 	}
 
-	m, err := tea.NewProgram(newModel(itemGenerator), tea.WithAltScreen(), tea.WithOutput(os.Stderr)).Run()
+	m, err := tea.NewProgram(newModel(itemGenerator, metadata), tea.WithAltScreen(), tea.WithOutput(os.Stderr)).Run()
 	if err != nil {
 		os.Exit(1)
 	}
@@ -206,4 +314,51 @@ func Pick(sessions []*core.CumulocitySession) (*core.CumulocitySession, error) {
 	}
 
 	return nil, fmt.Errorf("empty")
+}
+
+func (pm PickerMetadata) String() string {
+	var b strings.Builder
+
+	if len(pm.Vaults) > 0 {
+		b.WriteString("Vaults: " + strings.Join(pm.Vaults, ", ") + "\n")
+	}
+
+	if len(pm.Tags) > 0 {
+		b.WriteString("Tags: " + strings.Join(pm.Tags, ", ") + "\n")
+	}
+
+	if pm.Filter != "" {
+		b.WriteString("Filter: " + pm.Filter + "\n")
+	}
+
+	return b.String()
+}
+
+// buildTitle creates a descriptive title showing session count, vaults, and tags
+func buildTitle(sessionCount int, metadata PickerMetadata) string {
+	parts := []string{fmt.Sprintf("Sessions (%d)", sessionCount)}
+
+	if len(metadata.Vaults) > 0 {
+		if len(metadata.Vaults) == 1 {
+			parts = append(parts, fmt.Sprintf("Vault: %s", metadata.Vaults[0]))
+		} else {
+			parts = append(parts, fmt.Sprintf("Vaults: %s", strings.Join(metadata.Vaults, ", ")))
+		}
+	} else {
+		parts = append(parts, "All Vaults")
+	}
+
+	if len(metadata.Tags) > 0 {
+		if len(metadata.Tags) == 1 {
+			parts = append(parts, fmt.Sprintf("Tag: %s", metadata.Tags[0]))
+		} else {
+			parts = append(parts, fmt.Sprintf("Tags: %s", strings.Join(metadata.Tags, ", ")))
+		}
+	}
+
+	if metadata.Filter != "" {
+		parts = append(parts, fmt.Sprintf("Filter: %s", metadata.Filter))
+	}
+
+	return strings.Join(parts, " • ")
 }
