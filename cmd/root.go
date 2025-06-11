@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 
@@ -96,6 +97,11 @@ Environment Variables:
 			return err
 		}
 
+		outputFormat, err := cmd.Flags().GetString("output")
+		if err != nil {
+			return err
+		}
+
 		// Combine no-color flags (either --no-color or --noColor disables colors)
 		noColorFinal := noColor || noColorCompat
 
@@ -143,7 +149,7 @@ Environment Variables:
 			// Get TOTP if available
 			populateTOTP(session)
 
-			return outputSession(session, reveal)
+			return outputSession(session, reveal, outputFormat)
 		}
 
 		// Interactive/filtered selection mode
@@ -171,7 +177,7 @@ Environment Variables:
 			session := filteredSessions[0]
 			// Populate session details and TOTP from the full session list
 			populateSessionFromList(session, sessions)
-			return outputSession(session, reveal)
+			return outputSession(session, reveal, outputFormat)
 		} else {
 			// Multiple sessions found, use interactive picker
 			vaultList := splitAndTrimString(vault)
@@ -187,7 +193,7 @@ Environment Variables:
 			}
 			// Populate session details and TOTP from the full session list
 			populateSessionFromList(session, sessions)
-			return outputSession(session, reveal)
+			return outputSession(session, reveal, outputFormat)
 		}
 	},
 }
@@ -236,6 +242,7 @@ func init() {
 	rootCmd.PersistentFlags().String("item", "", "Specific item ID or name to retrieve (defaults to C8YOP_ITEM env var)")
 	rootCmd.PersistentFlags().String("uri", "", "Specific item with op://vault/item URI")
 	rootCmd.PersistentFlags().String("tags", "", "Comma-separated tags to filter by (defaults to C8YOP_TAGS env var, then 'c8y')")
+	rootCmd.PersistentFlags().StringP("output", "o", "json", "Output format (json, uri)")
 	rootCmd.PersistentFlags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable colored output in picker")
 	rootCmd.PersistentFlags().Bool("noColor", false, "Disable colored output in picker (go-c8y-cli compatibility)")
@@ -378,8 +385,20 @@ func parseTags(flagValue string) []string {
 	return tags
 }
 
+// Helper function to output session in the specified format
+func outputSession(session *core.CumulocitySession, reveal bool, outputFormat string) error {
+	switch outputFormat {
+	case "json":
+		return outputSessionAsJSON(session, reveal)
+	case "uri":
+		return outputSessionAsURI(session)
+	default:
+		return fmt.Errorf("unsupported output format: %s (supported: json, uri)", outputFormat)
+	}
+}
+
 // Helper function to output session as JSON
-func outputSession(session *core.CumulocitySession, reveal bool) error {
+func outputSessionAsJSON(session *core.CumulocitySession, reveal bool) error {
 	// Create a copy of the session to avoid modifying the original
 	outputSession := *session
 
@@ -401,5 +420,23 @@ func outputSession(session *core.CumulocitySession, reveal bool) error {
 		return err
 	}
 	fmt.Printf("%s\n", out)
+	return nil
+}
+
+// Helper function to output session as op:// URI
+func outputSessionAsURI(session *core.CumulocitySession) error {
+	if session.VaultID == "" || session.ItemID == "" {
+		return fmt.Errorf("missing vault name or item ID for URI output")
+	}
+
+	uri := fmt.Sprintf("op://%s/%s", session.VaultID, session.ItemID)
+
+	// Add target_url parameter if session has a host URL
+	if session.Host != "" {
+		encodedURL := url.QueryEscape(session.Host)
+		uri += fmt.Sprintf("?target_url=%s", encodedURL)
+	}
+
+	fmt.Printf("%s\n", uri)
 	return nil
 }

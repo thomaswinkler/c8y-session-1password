@@ -59,13 +59,22 @@ set-session-op() {
   eval $(c8y sessions login --from-cmd "c8y-session-1password --reveal $*" --shell auto)
 } 
 
+# Advanced: Get URI for a session (useful for direct 1Password CLI commands)
+get-session-uri() {
+  c8y-session-1password --output uri $*
+}
+
 # Remove op alias created by go-c8y-cli to avoid conflicts with 1Password CLI
 unalias op
 ```
 
-Then you can use `set-session-op` to set the session in your shell:
+Then you can use both functions:
 ```bash
-set-session-op xyz
+set-session-op xyz           # Set session in go-c8y-cli
+get-session-uri xyz          # Get op:// URI for the session
+
+# Use URI with 1Password CLI directly
+op item get $(get-session-uri Production) --fields label=password
 ```
 
 </details>
@@ -101,6 +110,69 @@ $env:C8YOP_VAULT="Employee,Shared"
 $(c8y sessions login --from-cmd "c8y-session-1password --reveal" --shell auto) | Invoke-Expression
 ```
 
+</details>
+
+## Output Formats
+
+Control the output format using the `--output` or `-o` flag. This is useful for integrating with other tools or scripts that expect specific formats.
+
+```bash
+# Default JSON output (for go-c8y-cli integration)
+c8y-session-1password --output json
+
+# URI output (op:// uri format)
+c8y-session-1password --output uri
+```
+
+**Available output formats:**
+- `json` (default) - Full session JSON for go-c8y-cli integration
+- `uri` - Only the `op://vault/item` URI for direct 1Password CLI usage
+
+### Output Format Examples
+
+#### JSON output (default)
+
+The default output format is JSON, which includes all session details as required by `go-c8y-cli` [sessions login](https://goc8ycli.netlify.app/docs/cli/c8y/sessions/c8y_sessions_login/) command.
+
+```json
+{
+  "host": "https://myinstance.cumulocity.com",
+  "username": "myuser",
+  "password": "***",
+  "tenant": "t123456",
+  "itemId": "abc123",
+  "vaultName": "Employee"
+}
+```
+
+#### URI output
+
+```
+op://Employee/abc123?target_url=https%3A%2F%2Fmyinstance.cumulocity.com
+```
+
+Use for example to store the selected session URI in an environment variable for further use in scripts or commands. The `target_url` parameter is optional and holds the selected url to use for the session. This is required for 1Password items with multiple URLs.
+
+Please note that `target_url` is NOT supported by 1Password CLI `op` command, but can be used in scripts or other tools that support this format.
+
+<details open>
+<summary><strong>bash / zsh</strong></summary>
+
+```bash
+# Store URI in environment variable
+export C8Y_SESSION=$(c8y-session-1password --output uri)
+echo "Selected session: $C8Y_SESSION"
+```
+</details>
+
+<details>
+<summary><strong>PowerShell</strong></summary>
+
+```powershell
+# Store URI in environment variable
+$env:C8Y_SESSION = c8y-session-1password --output uri
+Write-Host "Selected session: $env:C8Y_SESSION"
+```
 </details>
 
 ## 1Password Setup
