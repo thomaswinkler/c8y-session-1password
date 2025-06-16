@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -21,6 +24,15 @@ var (
 	Commit  = "none"
 	Date    = "unknown"
 )
+
+// NativeMessagingRequest represents the JSON request from Chrome extension
+type NativeMessagingRequest struct {
+	Type   string   `json:"type,omitempty"` // Optional type field for special commands
+	Vaults []string `json:"vaults"`
+	Tags   []string `json:"tags"`
+	Search string   `json:"search"`
+	Reveal bool     `json:"reveal,omitempty"` // Optional flag to reveal sensitive information
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "c8y-session-1password [filter]",
@@ -41,6 +53,11 @@ Direct item access:
 - Use --uri flag for direct item retrieval using op://vault/item format
 - Use --vault flag to limit searches to specific vault(s)
 
+Native messaging mode:
+- Automatically activated when JSON is piped via stdin
+- Compatible with Chrome extension native messaging protocol
+- Reads JSON with vaults, tags, and search criteria
+
 Pre-requisites:
 
  * 1Password CLI (op) - https://developer.1password.com/docs/cli/
@@ -57,10 +74,17 @@ Environment Variables:
  * C8YOP_VAULT - Default vault to search in (can be vault name or ID)
  * C8YOP_TAGS - Default tags to filter by (comma-separated, defaults to "c8y" if not set)
  * C8YOP_ITEM - Default item to retrieve (item ID or name)
- * C8YOP_LOG_LEVEL - Logging level (debug, info, warn, error; defaults to info)`,
+ * C8YOP_LOG_LEVEL - Logging level (debug, info, warn, error; defaults to warn)`,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Check if there's input available on stdin (automatic detection)
+		stat, err := os.Stdin.Stat()
+		if err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
+			// stdin has data (pipe or redirect), switch to native messaging mode
+			return runNativeMessaging()
+		}
+
 		vault, err := cmd.Flags().GetString("vault")
 		if err != nil {
 			return err
@@ -224,7 +248,7 @@ func setupLogging() {
 	case "error":
 		level = slog.LevelError
 	default:
-		level = slog.LevelInfo // Default to info level
+		level = slog.LevelWarn // Default to warning level
 	}
 
 	// Create a new logger with the specified level
@@ -439,4 +463,296 @@ func outputSessionAsURI(session *core.CumulocitySession) error {
 
 	fmt.Printf("%s\n", uri)
 	return nil
+}
+
+// Helper function to run the command in native messaging mode
+func runNativeMessaging() error {
+	slog.Debug("Starting native messaging mode")
+
+	// Chrome Native Messaging protocol: persistent connection with message loop
+	for {
+		slog.Debug("Waiting for next message from Chrome extension")
+
+		// Step 1: Read 4-byte length prefix
+		lengthBytes := make([]byte, 4)
+		n, err := io.ReadFull(os.Stdin, lengthBytes)
+		if err != nil {
+			if err == io.EOF {
+				slog.Debug("Chrome extension closed connection")
+				return nil // Normal exit when Chrome closes the pipe
+			}
+			return fmt.Errorf("failed to read message length: %w", err)
+		}
+		if n != 4 {
+			return fmt.Errorf("incomplete length header: got %d bytes, expected 4", n)
+		}
+
+		// Step 2: Parse message length
+		messageLength := binary.LittleEndian.Uint32(lengthBytes)
+		slog.Debug("Received message length", "length", messageLength)
+
+		// Sanity check on message length (prevent excessive memory allocation)
+		if messageLength == 0 || messageLength > 1024*1024 { // Max 1MB
+			return fmt.Errorf("invalid message length: %d", messageLength)
+		}
+
+		// Step 3: Read exactly messageLength bytes for the JSON message
+		messageBytes := make([]byte, messageLength)
+		n, err = io.ReadFull(os.Stdin, messageBytes)
+		if err != nil {
+			return fmt.Errorf("failed to read message data: %w", err)
+		}
+		if uint32(n) != messageLength {
+			return fmt.Errorf("incomplete message: got %d bytes, expected %d", n, messageLength)
+		}
+
+		slog.Debug("Received complete message", "data", string(messageBytes))
+
+		// Step 4: Parse the JSON message
+		var req NativeMessagingRequest
+		err = json.Unmarshal(messageBytes, &req)
+		if err != nil {
+			slog.Debug("Failed to parse JSON message", "error", err, "data", string(messageBytes))
+			// Send error response and continue listening
+			errorResponse := map[string]interface{}{
+				"type":  "error",
+				"error": fmt.Sprintf("Invalid JSON: %v", err),
+			}
+			if sendErr := sendNativeMessagingResponse(errorResponse); sendErr != nil {
+				return fmt.Errorf("failed to send error response: %w", sendErr)
+			}
+			continue
+		}
+
+		slog.Debug("Parsed native messaging request", "request", req)
+
+		// Step 5: Process the message and send response
+		err = processNativeMessagingRequest(req)
+		if err != nil {
+			slog.Debug("Failed to process request", "error", err)
+			// Send error response and continue listening
+			errorResponse := map[string]interface{}{
+				"type":  "error",
+				"error": err.Error(),
+			}
+			if sendErr := sendNativeMessagingResponse(errorResponse); sendErr != nil {
+				return fmt.Errorf("failed to send error response: %w", sendErr)
+			}
+			continue
+		}
+
+		// Successfully processed request, continue loop for next message
+	}
+}
+
+// Helper function to process a single native messaging request
+func processNativeMessagingRequest(req NativeMessagingRequest) error {
+	// Handle special request types
+	if req.Type == "test_auth" {
+		slog.Debug("Handling test_auth request")
+		return handleAuthTest(true) // Always use native messaging format in native messaging mode
+	}
+
+	// Extract vaults and tags, use search as filter
+	var vaults []string
+	var tags []string
+	var filter string
+
+	if len(req.Vaults) > 0 {
+		vaults = req.Vaults
+	} else {
+		// No specific vaults requested, use default or all vaults
+		defaultVault := getEnvWithFallback("C8YOP_VAULT", "CYOP_VAULT")
+		if defaultVault != "" {
+			vaults = []string{defaultVault}
+		} else {
+			vaults = nil // All vaults
+		}
+	}
+
+	if len(req.Tags) > 0 {
+		tags = req.Tags
+	} else {
+		// No specific tags, use default or "c8y" tag
+		defaultTags := getEnvWithFallback("C8YOP_TAGS", "CYOP_TAGS")
+		if defaultTags != "" {
+			tags = splitAndTrimString(defaultTags)
+		} else {
+			tags = []string{"c8y"}
+		}
+	}
+
+	filter = req.Search
+
+	// Log the effective vaults, tags, and filter
+	slog.Debug("Effective vaults, tags, and filter", "vaults", vaults, "tags", tags, "filter", filter)
+
+	// Convert vaults slice to comma-separated string for NewClient
+	var vaultString string
+	if len(vaults) > 0 {
+		vaultString = strings.Join(vaults, ",")
+	}
+
+	// Use the existing logic to process the request
+	client := onepassword.NewClient(vaultString, tags...)
+	sessions, err := client.List()
+	if err != nil {
+		return err
+	}
+
+	if len(sessions) == 0 {
+		return fmt.Errorf("no sessions found matching vaults: %v and tags: %v", vaults, tags)
+	}
+
+	// Apply filter if provided
+	filteredSessions := sessions
+	if filter != "" {
+		filteredSessions = core.FilterSessions(sessions, filter)
+	}
+
+	// Smart selection behavior
+	if len(filteredSessions) == 0 {
+		return fmt.Errorf("no sessions found matching filter: %s", filter)
+	} else if len(filteredSessions) == 1 {
+		// Auto-select the single matching session
+		session := filteredSessions[0]
+		// Populate session details and TOTP from the full session list
+		populateSessionFromList(session, sessions)
+		return outputSessionNativeMessaging(session, req.Reveal, true) // Use reveal flag from request
+	} else {
+		// Multiple sessions found, return as JSON array
+		var outputSessions []*core.CumulocitySession
+		for _, session := range filteredSessions {
+			// Populate session details and TOTP from the full session list
+			populateSessionFromList(session, sessions)
+			outputSessions = append(outputSessions, session)
+		}
+		return outputSessionsNativeMessaging(outputSessions, req.Reveal, true) // Use reveal flag from request
+	}
+}
+
+// Helper function to send a response using native messaging format
+func sendNativeMessagingResponse(response interface{}) error {
+	jsonData, err := json.Marshal(response)
+	if err != nil {
+		return fmt.Errorf("failed to marshal response to JSON: %w", err)
+	}
+	return writeNativeMessage(jsonData)
+}
+
+// Helper function to apply reveal flag to a session copy
+func applyRevealFlag(session *core.CumulocitySession, reveal bool) *core.CumulocitySession {
+	// Create a copy to avoid modifying the original
+	outputSession := *session
+
+	// Obfuscate sensitive information if reveal is false
+	if !reveal {
+		if outputSession.Password != "" {
+			outputSession.Password = "***"
+		}
+		if outputSession.TOTP != "" {
+			outputSession.TOTP = "***"
+		}
+		if outputSession.TOTPSecret != "" {
+			outputSession.TOTPSecret = "***"
+		}
+	}
+
+	return &outputSession
+}
+
+// Helper function to output JSON data for native messaging
+func outputJSONNativeMessaging(data interface{}, isNativeMessagingFormat bool) error {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal data to JSON: %w", err)
+	}
+
+	if isNativeMessagingFormat {
+		return writeNativeMessage(jsonData)
+	} else {
+		// Plain JSON output
+		fmt.Printf("%s\n", jsonData)
+		return nil
+	}
+}
+
+// Helper function to output single session for native messaging
+func outputSessionNativeMessaging(session *core.CumulocitySession, reveal bool, isNativeMessagingFormat bool) error {
+	outputSession := applyRevealFlag(session, reveal)
+	return outputJSONNativeMessaging(outputSession, isNativeMessagingFormat)
+}
+
+// Helper function to output multiple sessions for native messaging
+func outputSessionsNativeMessaging(sessions []*core.CumulocitySession, reveal bool, isNativeMessagingFormat bool) error {
+	// Apply reveal flag to all sessions using the helper function
+	var outputSessions []*core.CumulocitySession
+	for _, session := range sessions {
+		outputSession := applyRevealFlag(session, reveal)
+		outputSessions = append(outputSessions, outputSession)
+	}
+
+	return outputJSONNativeMessaging(outputSessions, isNativeMessagingFormat)
+}
+
+// Helper function to write native messaging format
+func writeNativeMessage(jsonData []byte) error {
+	// Write 4-byte little-endian length prefix
+	length := uint32(len(jsonData))
+	lengthBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(lengthBytes, length)
+
+	if _, err := os.Stdout.Write(lengthBytes); err != nil {
+		return fmt.Errorf("failed to write length prefix: %w", err)
+	}
+
+	// Write JSON data
+	if _, err := os.Stdout.Write(jsonData); err != nil {
+		return fmt.Errorf("failed to write JSON data: %w", err)
+	}
+
+	return nil
+}
+
+// Helper function to handle authentication test
+func handleAuthTest(isNativeMessagingFormat bool) error {
+	slog.Debug("Running op signin for authentication test")
+
+	// Run op signin command
+	cmd := exec.Command("op", "signin")
+	cmd.Stdin = os.Stdin   // Allow interactive signin
+	cmd.Stdout = os.Stderr // Redirect output to stderr so it doesn't interfere with native messaging
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+
+	// Prepare response
+	var response map[string]interface{}
+	if err != nil {
+		slog.Debug("op signin failed", "error", err)
+		response = map[string]interface{}{
+			"type":    "auth_result",
+			"success": false,
+			"error":   err.Error(),
+		}
+	} else {
+		slog.Debug("op signin succeeded")
+		response = map[string]interface{}{
+			"type":    "auth_result",
+			"success": true,
+		}
+	}
+
+	// Send response in appropriate format
+	jsonData, err := json.Marshal(response)
+	if err != nil {
+		return fmt.Errorf("failed to marshal auth response: %w", err)
+	}
+
+	if isNativeMessagingFormat {
+		return writeNativeMessage(jsonData)
+	} else {
+		fmt.Printf("%s\n", jsonData)
+		return nil
+	}
 }
