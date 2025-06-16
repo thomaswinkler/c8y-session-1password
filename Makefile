@@ -2,6 +2,7 @@
 
 # Build variables
 BINARY_NAME=c8y-session-1password
+BIN_DIR=bin
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE?=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -15,18 +16,20 @@ GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 
-.PHONY: all build clean test coverage deps help
+.PHONY: all build clean test coverage deps lint install uninstall build-all help version
 
 all: test build
 
 ## Build the binary
 build:
-	$(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME) .
+	@mkdir -p $(BIN_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(BIN_DIR)/$(BINARY_NAME) .
 
 ## Clean build artifacts
 clean:
 	$(GOCLEAN)
-	rm -f $(BINARY_NAME)
+	rm -rf $(BIN_DIR)
+	rm -rf dist
 	rm -f coverage.out
 
 ## Run tests
@@ -48,11 +51,17 @@ lint:
 	golangci-lint run
 
 ## Install the binary
-install:
-	$(GOCMD) install $(LDFLAGS) .
+install: build
+	sudo cp $(BIN_DIR)/$(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
+	sudo chmod +x /usr/local/bin/$(BINARY_NAME)
+
+## Uninstall the binary
+uninstall:
+	sudo rm -f /usr/local/bin/$(BINARY_NAME)
 
 ## Build for all platforms (like goreleaser)
 build-all:
+	@mkdir -p dist
 	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-linux-amd64 .
 	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-linux-arm64 .
 	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-darwin-amd64 .
