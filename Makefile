@@ -75,17 +75,18 @@ help:
 	@echo '  make [target]'
 	@echo ''
 	@echo 'Targets:'
-	@awk 'BEGIN {FS = ":.*?## "} { \
-		if (/^[a-zA-Z_-]+:.*?##.*$$/) { \
-			helpMessage = match(lastLine, /^## (.*)/); \
-			if (helpMessage) { \
-				helpCommand = substr(lastLine, RSTART + 3, RLENGTH - 3); \
-				gsub("\\\\", "", helpCommand); \
-				printf "\033[36m%-20s\033[0m %s\n", $$1, helpCommand; \
-			} \
+	@awk '/^[a-zA-Z_-]+:/ { \
+		helpCommand = ""; \
+		if (helpLine) { \
+			helpCommand = helpLine; \
+			gsub(/^## /, "", helpCommand); \
 		} \
+		if (helpCommand) { \
+			printf "\033[36m%-20s\033[0m %s\n", $$1, helpCommand; \
+		} \
+		helpLine = ""; \
 	} \
-	{ lastLine = $$0 }' $(MAKEFILE_LIST)
+	/^## / { helpLine = $$0; }' $(MAKEFILE_LIST)
 
 ## Show version info
 version:
