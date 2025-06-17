@@ -45,7 +45,7 @@ Or on failure:
 **Field Descriptions:**
 - `vaults` (optional): Array of vault names/IDs to search. If empty, searches all vaults.
 - `tags` (optional): Array of tags to filter by. Defaults to ["c8y"] if not specified.
-- `search` (optional): Search term to filter sessions by name, item name, or URL.
+- `search` (optional): Search term to filter sessions by name, item name, URL, or username.
 - `reveal` (optional): Boolean flag to reveal sensitive information. Defaults to `false`.
 
 **Security Note:** By default, passwords and TOTP secrets are obfuscated as `"***"`. Set `reveal: true` to get actual values.

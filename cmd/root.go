@@ -42,7 +42,7 @@ var rootCmd = &cobra.Command{
 This command provides smart filtering and selection of sessions:
 - Shows interactive picker for multiple sessions matching the filter
 - Automatically returns the session when filter matches exactly one item
-- Filter matches against session names, item names, and URLs
+- Filter matches against session names, item names, URLs, and usernames
 - Support multiple urls per 1Password item showing one session per URL
 
 By default, sensitive information (passwords, TOTP secrets) is obfuscated in the output.

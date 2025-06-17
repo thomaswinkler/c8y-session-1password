@@ -273,7 +273,7 @@ func extractHostname(urlStr string) string {
 }
 
 // FilterSessions filters sessions based on a query string that matches against
-// session name, item name, or host URL (case-insensitive)
+// session name, item name, host URL, or username (case-insensitive)
 func FilterSessions(sessions []*CumulocitySession, filter string) []*CumulocitySession {
 	if filter == "" {
 		return sessions
@@ -286,7 +286,8 @@ func FilterSessions(sessions []*CumulocitySession, filter string) []*CumulocityS
 		// Check if filter matches any of these fields (case-insensitive)
 		if strings.Contains(strings.ToLower(session.Name), filter) ||
 			strings.Contains(strings.ToLower(session.ItemName), filter) ||
-			strings.Contains(strings.ToLower(session.Host), filter) {
+			strings.Contains(strings.ToLower(session.Host), filter) ||
+			strings.Contains(strings.ToLower(session.Username), filter) {
 			filtered = append(filtered, session)
 		}
 	}
