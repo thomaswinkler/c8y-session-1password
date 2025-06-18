@@ -321,7 +321,7 @@ The following environment variables can be set to customize the behavior of `c8y
 - `C8YOP_VAULT` - Default vault(s) to search (comma-separated: `"Employee,Shared"`, optional - if not provided, searches all vaults)
 - `C8YOP_TAGS` - Filter tags (defaults to `"c8y"`)
 - `C8YOP_ITEM` - Default item name or ID
-- `C8YOP_LOG_LEVEL` - Logging level (`debug`, `info`, `warn`, `error`; defaults to `info`)
+- `C8YOP_LOG_LEVEL` - Logging level (`debug`, `info`, `warn`, `error`; defaults to `warn`)
 
 For automated environments or when working with specific projects, set these in your shell profile:
 
@@ -386,8 +386,8 @@ LOG_LEVEL=debug c8y-session-1password --item "Production"
 
 Available log levels:
 - `debug` - Detailed operational information (fetching items, API calls)
-- `info` - General information (default)
-- `warn`, `warning` - Warning messages
+- `info` - General information
+- `warn`, `warning` - Warning messages (default)
 - `error` - Error messages only
 
 Debug logging is particularly useful for:
