@@ -77,6 +77,17 @@ Environment Variables:
  * C8YOP_LOG_LEVEL - Logging level (debug, info, warn, error; defaults to warn)`,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Check if log level is given by flags as this takes precedence over environment variables
+		logLevel := ""
+		if verbose, _ := cmd.Flags().GetBool("verbose"); verbose {
+			logLevel = "info"
+		}
+		if debug, _ := cmd.Flags().GetBool("debug"); debug {
+			logLevel = "debug"
+		}
+		setupLogging(logLevel)
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Check if there's input available on stdin (automatic detection)
 		stat, err := os.Stdin.Stat()
@@ -230,11 +241,10 @@ func Execute() {
 }
 
 // setupLogging configures slog based on C8YOP_LOG_LEVEL or LOG_LEVEL environment variable
-func setupLogging() {
+func setupLogging(logLevel string) {
 	// Check C8YOP_LOG_LEVEL first for consistency, fallback to LOG_LEVEL
-	logLevel := os.Getenv("C8YOP_LOG_LEVEL")
 	if logLevel == "" {
-		logLevel = os.Getenv("LOG_LEVEL")
+		logLevel = getEnvWithFallback("C8YOP_LOG_LEVEL", "LOG_LEVEL")
 	}
 	var level slog.Level
 
@@ -261,7 +271,6 @@ func setupLogging() {
 }
 
 func init() {
-	setupLogging()
 	rootCmd.PersistentFlags().String("vault", "", "Vault name or ID (optional - if not provided, use C8YOP_VAULT env var or use all vaults)")
 	rootCmd.PersistentFlags().String("item", "", "Specific item ID or name to retrieve (defaults to C8YOP_ITEM env var)")
 	rootCmd.PersistentFlags().String("uri", "", "Specific item with op://vault/item URI")
@@ -270,6 +279,8 @@ func init() {
 	rootCmd.PersistentFlags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable colored output in picker")
 	rootCmd.PersistentFlags().Bool("noColor", false, "Disable colored output in picker (go-c8y-cli compatibility)")
+	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose logging")
+	rootCmd.PersistentFlags().Bool("debug", false, "Debug logging")
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(debugColorsCmd)
 }
