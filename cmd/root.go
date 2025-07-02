@@ -270,6 +270,13 @@ func init() {
 	rootCmd.PersistentFlags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable colored output in picker")
 	rootCmd.PersistentFlags().Bool("noColor", false, "Disable colored output in picker (go-c8y-cli compatibility)")
+
+	// Hidden flags which are only there to satisfy the go-c8y-cli session interface
+	rootCmd.PersistentFlags().String("loginType", "", "Not used (hidden)")
+	rootCmd.PersistentFlags().Bool("clear", false, "Not used (hidden)")
+	rootCmd.PersistentFlags().MarkHidden("loginType")
+	rootCmd.PersistentFlags().MarkHidden("clear")
+
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(debugColorsCmd)
 }
