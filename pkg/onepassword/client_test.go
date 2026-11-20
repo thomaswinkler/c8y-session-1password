@@ -1,6 +1,7 @@
 package onepassword
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 
@@ -251,8 +252,10 @@ func TestMapToSessions_MultipleURLs(t *testing.T) {
 		if session.ItemID != "test123" {
 			t.Errorf("Session %d: Expected ItemID 'test123', got '%s'", i, session.ItemID)
 		}
-		if !strings.Contains(session.SessionURI, "vault123/test123") {
-			t.Errorf("Session %d: Expected SessionURI to contain vault/item, got '%s'", i, session.SessionURI)
+		// The URL identifies the session, as the item has multiple URLs
+		expectedURI := "op://vault123/test123?target_url=" + url.QueryEscape(session.Host)
+		if session.SessionURI != expectedURI {
+			t.Errorf("Session %d: Expected SessionURI '%s', got '%s'", i, expectedURI, session.SessionURI)
 		}
 	}
 
@@ -299,8 +302,9 @@ func TestMapToSessions_SingleURL(t *testing.T) {
 	if session.Host != "https://single.example.com" {
 		t.Errorf("Expected host 'https://single.example.com', got '%s'", session.Host)
 	}
-	if strings.Contains(session.SessionURI, "#") {
-		t.Errorf("Expected simple SessionURI without fragment, got '%s'", session.SessionURI)
+	// Without target_url, so the 1Password CLI can use it
+	if session.SessionURI != "op://vault456/test456" {
+		t.Errorf("Expected SessionURI 'op://vault456/test456', got '%s'", session.SessionURI)
 	}
 }
 

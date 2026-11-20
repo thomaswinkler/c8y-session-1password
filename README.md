@@ -307,6 +307,8 @@ You can choose any tags. Make sure to pass using `--tags` flag or set `C8YOP_TAG
 
 There is flexibility in how you configure URLs for Cumulocity instances. If there is more than one URL found in an item, a separate session will be created and shown for each URL.
 
+The `sessionUri` of these sessions includes the URL as `target_url` parameter, e.g. `op://Employee/abc123?target_url=https%3A%2F%2Fmyinstance.cumulocity.com`, so it identifies the session and can be used with `--uri`. Sessions of items with one URL use `op://vault/item`, which the 1Password CLI also supports.
+
 URLs should be absolute URLs pointing to the Cumulocity instance, e.g. `https://myinstance.cumulocity.com`. The url will be used to identify the session in the picker. The label of the field, also if customized, is not used for the session or it's presentation in the picker.
 
 The following fields will be searched for URLs:
