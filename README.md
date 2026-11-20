@@ -9,6 +9,27 @@ A session provider for [go-c8y-cli](https://github.com/reubenmiller/go-c8y-cli) 
 
 ## Installation
 
+### As go-c8y-cli extension
+
+With go-c8y-cli 2.57.0 or later, install `c8y-session-1password` as an extension. It provides the session provider `onepassword`:
+
+```bash
+c8y extensions install thomaswinkler/c8y-session-1password
+
+# Select a session from 1Password
+set-session --from-extension onepassword
+
+# Pass arguments to c8y-session-1password after --
+set-session --from-extension onepassword -- --vault Employee Production
+
+# Use the provider by default for set-session
+c8y settings update session.provider.type extension
+c8y settings update session.provider.extension onepassword
+set-session
+```
+
+The provider uses your environment, for example `C8YOP_VAULT` and `C8YOP_TAGS`. Update the extension with `c8y extensions update session-1password`.
+
 ### Using Go Install
 
 ```bash

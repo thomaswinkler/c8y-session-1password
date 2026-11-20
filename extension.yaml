@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/reubenmiller/go-c8y-cli/v2/tools/schema/extension.json
+# go-c8y-cli extension manifest. Install with: c8y extensions install thomaswinkler/c8y-session-1password
+version: v1
+name: session-1password
+
+binary:
+  path: bin/c8y-session-1password
+  completion: cobra
+
+sessionProviders:
+  - name: onepassword
+    description: Select a session from 1Password
+    # the session must include the password and TOTP secret, so c8y can log in
+    exec: [--reveal]
+    format: json

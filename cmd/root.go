@@ -285,8 +285,14 @@ func init() {
 	// Hidden flags which are only there to satisfy the go-c8y-cli session interface
 	rootCmd.PersistentFlags().String("loginType", "", "Not used (hidden)")
 	rootCmd.PersistentFlags().Bool("clear", false, "Not used (hidden)")
+	rootCmd.PersistentFlags().String("browserCallback", "", "Not used (hidden)")
+	rootCmd.PersistentFlags().String("sso-scopes", "", "Not used (hidden)")
+	rootCmd.PersistentFlags().String("sso-audience", "", "Not used (hidden)")
 	_ = rootCmd.PersistentFlags().MarkHidden("loginType")
 	_ = rootCmd.PersistentFlags().MarkHidden("clear")
+	_ = rootCmd.PersistentFlags().MarkHidden("browserCallback")
+	_ = rootCmd.PersistentFlags().MarkHidden("sso-scopes")
+	_ = rootCmd.PersistentFlags().MarkHidden("sso-audience")
 
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(debugColorsCmd)
