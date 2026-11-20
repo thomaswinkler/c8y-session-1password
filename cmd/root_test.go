@@ -1,6 +1,14 @@
 package cmd
 
-import "testing"
+import (
+	"encoding/json"
+	"io"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/thomaswinkler/c8y-session-1password/pkg/core"
+)
 
 func TestIsNativeMessagingHost(t *testing.T) {
 	tests := []struct {
@@ -23,4 +31,86 @@ func TestIsNativeMessagingHost(t *testing.T) {
 			}
 		})
 	}
+}
+
+// captureStdout returns what fn writes to stdout
+func captureStdout(t *testing.T, fn func() error) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	os.Stdout = w
+	fnErr := fn()
+	os.Stdout = stdout
+	w.Close()
+	out, _ := io.ReadAll(r)
+	if fnErr != nil {
+		t.Fatalf("unexpected error: %v", fnErr)
+	}
+	return string(out)
+}
+
+func TestOutputSessionList(t *testing.T) {
+	sessions := []*core.CumulocitySession{
+		{
+			Name:       "Production",
+			Host:       "https://prod.example.com",
+			Username:   "admin",
+			Password:   "secret-password",
+			TOTP:       "123456",
+			TOTPSecret: "secret-totp",
+			ItemID:     "item1",
+			VaultID:    "vault1",
+		},
+		{
+			Name:     "Test",
+			Host:     "https://test.example.com",
+			Username: "tester",
+			ItemID:   "item2",
+			VaultID:  "vault1",
+		},
+	}
+
+	t.Run("json without secrets", func(t *testing.T) {
+		out := captureStdout(t, func() error { return outputSessionList(sessions, "json") })
+		for _, secret := range []string{"secret-password", "123456", "secret-totp", "password", "totp"} {
+			if strings.Contains(out, secret) {
+				t.Errorf("output contains %q: %s", secret, out)
+			}
+		}
+		var listed []core.CumulocitySession
+		if err := json.Unmarshal([]byte(out), &listed); err != nil {
+			t.Fatalf("output is not a JSON array: %v", err)
+		}
+		if len(listed) != 2 || listed[0].Host != "https://prod.example.com" || listed[1].ItemID != "item2" {
+			t.Errorf("unexpected sessions: %+v", listed)
+		}
+		if sessions[0].Password != "secret-password" {
+			t.Errorf("original session was modified")
+		}
+	})
+
+	t.Run("empty json array", func(t *testing.T) {
+		out := captureStdout(t, func() error { return outputSessionList(nil, "json") })
+		if strings.TrimSpace(out) != "[]" {
+			t.Errorf("expected [], got %q", out)
+		}
+	})
+
+	t.Run("one uri per line", func(t *testing.T) {
+		out := captureStdout(t, func() error { return outputSessionList(sessions, "uri") })
+		expected := "op://vault1/item1?target_url=https%3A%2F%2Fprod.example.com\n" +
+			"op://vault1/item2?target_url=https%3A%2F%2Ftest.example.com\n"
+		if out != expected {
+			t.Errorf("expected %q, got %q", expected, out)
+		}
+	})
+
+	t.Run("unsupported format", func(t *testing.T) {
+		if err := outputSessionList(sessions, "yaml"); err == nil {
+			t.Errorf("expected error for unsupported format")
+		}
+	})
 }

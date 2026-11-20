@@ -52,23 +52,28 @@ func TestNewClient(t *testing.T) {
 
 func TestParseOPURI(t *testing.T) {
 	tests := []struct {
-		uri           string
-		expectedVault string
-		expectedItem  string
-		expectError   bool
+		uri               string
+		expectedVault     string
+		expectedItem      string
+		expectedTargetURL string
+		expectError       bool
 	}{
-		{"op://Employee/Cumulocity Production", "Employee", "Cumulocity Production", false},
-		{"op://vault123/item456", "vault123", "item456", false},
-		{"op://Personal/My Login", "Personal", "My Login", false},
-		{"1password://abc123", "", "", true}, // Wrong scheme
-		{"op://vault", "", "", true},         // Missing item
-		{"op:///item", "", "", true},         // Missing vault
-		{"", "", "", true},                   // Empty string
-		{"invalid", "", "", true},            // Invalid format
+		{"op://Employee/Cumulocity Production", "Employee", "Cumulocity Production", "", false},
+		{"op://vault123/item456", "vault123", "item456", "", false},
+		{"op://Personal/My Login", "Personal", "My Login", "", false},
+		{"op://vault123/item456?target_url=https%3A%2F%2Fexample.cumulocity.com", "vault123", "item456", "https://example.cumulocity.com", false}, // Output of --output uri
+		{"op://vault123/item456?other=value", "vault123", "item456", "", false},                                                                   // Unknown parameter
+		{"op://vault123/item456?target_url=%zz", "", "", "", true},                                                                                // Invalid parameter
+		{"1password://abc123", "", "", "", true},                                                                                                  // Wrong scheme
+		{"op://vault", "", "", "", true},                                                                                                          // Missing item
+		{"op:///item", "", "", "", true},                                                                                                          // Missing vault
+		{"op://vault?target_url=x", "", "", "", true},                                                                                             // Missing item with parameter
+		{"", "", "", "", true},        // Empty string
+		{"invalid", "", "", "", true}, // Invalid format
 	}
 
 	for _, test := range tests {
-		vault, item, err := ParseOPURI(test.uri)
+		vault, item, targetURL, err := ParseOPURI(test.uri)
 
 		if test.expectError {
 			if err == nil {
@@ -83,6 +88,9 @@ func TestParseOPURI(t *testing.T) {
 			}
 			if item != test.expectedItem {
 				t.Errorf("ParseOPURI(%q) item = %q; expected %q", test.uri, item, test.expectedItem)
+			}
+			if targetURL != test.expectedTargetURL {
+				t.Errorf("ParseOPURI(%q) targetURL = %q; expected %q", test.uri, targetURL, test.expectedTargetURL)
 			}
 		}
 	}
@@ -431,4 +439,39 @@ func mapToSessions(item *OPItem, vaults map[string]string) []*core.CumulocitySes
 
 	// No tag filtering for backward compatibility
 	return core.MapToSessions(coreItem, coreFields, coreURLs, vaultName, nil)
+}
+
+func TestSelectSession(t *testing.T) {
+	sessions := []*core.CumulocitySession{
+		{Name: "Production (URL 1)", ItemName: "Production", Host: "https://prod.example.com"},
+		{Name: "Production (URL 2)", ItemName: "Production", Host: "https://prod2.example.com/"},
+	}
+
+	tests := []struct {
+		targetURL    string
+		expectedName string
+		expectError  bool
+	}{
+		{"", "Production (URL 1)", false},                           // First session without target URL
+		{"https://prod2.example.com/", "Production (URL 2)", false}, // Exact match
+		{"https://PROD2.example.com", "Production (URL 2)", false},  // Case and trailing slash ignored
+		{"https://other.example.com", "", true},                     // URL of another item
+	}
+
+	for _, test := range tests {
+		session, err := selectSession(sessions, test.targetURL)
+		if test.expectError {
+			if err == nil {
+				t.Errorf("selectSession(%q) expected error but got session %q", test.targetURL, session.Name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("selectSession(%q) unexpected error: %v", test.targetURL, err)
+			continue
+		}
+		if session.Name != test.expectedName {
+			t.Errorf("selectSession(%q) = %q; expected %q", test.targetURL, session.Name, test.expectedName)
+		}
+	}
 }

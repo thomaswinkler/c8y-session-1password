@@ -174,7 +174,11 @@ op://Employee/abc123?target_url=https%3A%2F%2Fmyinstance.cumulocity.com
 
 Use for example to store the selected session URI in an environment variable for further use in scripts or commands. The `target_url` parameter is optional and holds the selected url to use for the session. This is required for 1Password items with multiple URLs.
 
-Please note that `target_url` is NOT supported by 1Password CLI `op` command, but can be used in scripts or other tools that support this format.
+Please note that `target_url` is NOT supported by 1Password CLI `op` command, but can be used in scripts or other tools that support this format. `c8y-session-1password --uri` accepts it to select the session of that URL:
+
+```bash
+c8y-session-1password --reveal --uri "op://Employee/abc123?target_url=https%3A%2F%2Fmyinstance.cumulocity.com"
+```
 
 <details open>
 <summary><strong>bash / zsh</strong></summary>
@@ -195,6 +199,18 @@ $env:C8Y_SESSION = c8y-session-1password --output uri
 Write-Host "Selected session: $env:C8Y_SESSION"
 ```
 </details>
+
+### List sessions
+
+`--list` prints all matching sessions instead of selecting one, without the interactive picker. Other tools can use it to show the sessions in their own session picker. The output never includes passwords or TOTP secrets, so `--list` can't be used with `--reveal`.
+
+```bash
+# JSON array of all matching sessions (an empty array if none match)
+c8y-session-1password --list --vault Employee
+
+# One URI per line, which selects the session with --uri
+c8y-session-1password --list --output uri production
+```
 
 ## 1Password Setup
 

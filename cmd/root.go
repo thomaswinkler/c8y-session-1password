@@ -130,6 +130,17 @@ Environment Variables:
 			return err
 		}
 
+		list, err := cmd.Flags().GetBool("list")
+		if err != nil {
+			return err
+		}
+		if list && reveal {
+			return fmt.Errorf("--list can't be used with --reveal, as it never outputs secrets")
+		}
+		if list && (cmd.Flags().Changed("item") || cmd.Flags().Changed("uri")) {
+			return fmt.Errorf("--list can't be used with --item or --uri")
+		}
+
 		// Combine no-color flags (either --no-color or --noColor disables colors)
 		noColorFinal := noColor || noColorCompat
 
@@ -149,8 +160,9 @@ Environment Variables:
 		}
 
 		// Parse op:// URI if provided
+		var targetURL string
 		if opURI != "" {
-			vaultFromURI, itemFromURI, err := onepassword.ParseOPURI(opURI)
+			vaultFromURI, itemFromURI, targetFromURI, err := onepassword.ParseOPURI(opURI)
 			if err != nil {
 				return fmt.Errorf("invalid URI: %w", err)
 			}
@@ -161,15 +173,17 @@ Environment Variables:
 			if item == "" || item == itemFromURI {
 				item = itemFromURI
 			}
+			targetURL = targetFromURI
 		}
 
 		// Get tags using helper function
 		tags := parseTags(tagsFlag)
 
-		// If we have a specific item, get it directly (vault is optional)
-		if item != "" {
+		// If we have a specific item, get it directly (vault is optional). C8YOP_ITEM is
+		// ignored when listing
+		if item != "" && !list {
 			client := onepassword.NewClient(vault, tags...)
-			session, err := client.GetItem(vault, item)
+			session, err := client.GetItem(vault, item, targetURL)
 			if err != nil {
 				return err
 			}
@@ -187,14 +201,19 @@ Environment Variables:
 			return err
 		}
 
-		if len(sessions) == 0 {
-			return fmt.Errorf("no sessions found matching tags: %v", tags)
-		}
-
 		// Apply filter if provided
 		filteredSessions := sessions
 		if filter != "" {
 			filteredSessions = core.FilterSessions(sessions, filter)
+		}
+
+		// List all matching sessions without secrets, e.g. for the session picker of another tool
+		if list {
+			return outputSessionList(filteredSessions, outputFormat)
+		}
+
+		if len(sessions) == 0 {
+			return fmt.Errorf("no sessions found matching tags: %v", tags)
 		}
 
 		// Smart selection behavior
@@ -292,6 +311,7 @@ func init() {
 	rootCmd.PersistentFlags().String("tags", "", "Comma-separated tags to filter by (defaults to C8YOP_TAGS env var, then 'c8y')")
 	rootCmd.PersistentFlags().StringP("output", "o", "json", "Output format (json, uri)")
 	rootCmd.PersistentFlags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
+	rootCmd.PersistentFlags().Bool("list", false, "List all matching sessions without passwords and TOTP secrets, instead of selecting one (JSON array, or one URI per line with --output uri)")
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable colored output in picker")
 	rootCmd.PersistentFlags().Bool("noColor", false, "Disable colored output in picker (go-c8y-cli compatibility)")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose logging")
@@ -455,6 +475,37 @@ func outputSession(session *core.CumulocitySession, reveal bool, outputFormat st
 		return outputSessionAsJSON(session, reveal)
 	case "uri":
 		return outputSessionAsURI(session)
+	default:
+		return fmt.Errorf("unsupported output format: %s (supported: json, uri)", outputFormat)
+	}
+}
+
+// Helper function to output a list of sessions without secrets in the specified format: a JSON
+// array, or one URI per line. An empty list is not an error
+func outputSessionList(sessions []*core.CumulocitySession, outputFormat string) error {
+	switch outputFormat {
+	case "json":
+		listed := make([]core.CumulocitySession, 0, len(sessions))
+		for _, session := range sessions {
+			listedSession := *session
+			listedSession.Password = ""
+			listedSession.TOTP = ""
+			listedSession.TOTPSecret = ""
+			listed = append(listed, listedSession)
+		}
+		out, err := json.MarshalIndent(listed, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s\n", out)
+		return nil
+	case "uri":
+		for _, session := range sessions {
+			if err := outputSessionAsURI(session); err != nil {
+				return err
+			}
+		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported output format: %s (supported: json, uri)", outputFormat)
 	}
