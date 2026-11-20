@@ -44,7 +44,9 @@ func captureStdout(t *testing.T, fn func() error) string {
 	os.Stdout = w
 	fnErr := fn()
 	os.Stdout = stdout
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
 	out, _ := io.ReadAll(r)
 	if fnErr != nil {
 		t.Fatalf("unexpected error: %v", fnErr)
