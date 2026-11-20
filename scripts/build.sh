@@ -35,14 +35,23 @@ echo "Created dist directory"
 
 echo "Building binaries for version ${VERSION}..."
 
-# Build for different platforms
+# Build for the same platforms as go-c8y-cli
 platforms=(
+    "linux/386"
+    "linux/arm"
     "linux/amd64"
     "linux/arm64"
     "darwin/amd64"
     "darwin/arm64"
+    "windows/386"
     "windows/amd64"
+    "windows/arm64"
 )
+
+# Pure Go binaries, which don't depend on the system's C libraries
+export CGO_ENABLED=0
+# 32-bit arm: c8y only selects one arm asset, and ARMv6 also runs on ARMv7
+export GOARM=6
 
 for platform in "${platforms[@]}"; do
     IFS='/' read -r GOOS GOARCH <<< "$platform"
