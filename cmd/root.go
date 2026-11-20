@@ -54,7 +54,7 @@ Direct item access:
 - Use --vault flag to limit searches to specific vault(s)
 
 Native messaging mode:
-- Automatically activated when JSON is piped via stdin
+- Activated when started by a Chrome extension (caller origin chrome-extension://<id>/ as first argument)
 - Compatible with Chrome extension native messaging protocol
 - Reads JSON with vaults, tags, and search criteria
 
@@ -89,13 +89,6 @@ Environment Variables:
 		setupLogging(logLevel)
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Check if there's input available on stdin (automatic detection)
-		stat, err := os.Stdin.Stat()
-		if err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
-			// stdin has data (pipe or redirect), switch to native messaging mode
-			return runNativeMessaging()
-		}
-
 		vault, err := cmd.Flags().GetString("vault")
 		if err != nil {
 			return err
@@ -233,7 +226,29 @@ Environment Variables:
 	},
 }
 
+// chromeExtensionOrigin prefix of the caller origin, which Chrome (and other Chromium based
+// browsers) passes as the first argument when starting a native messaging host
+const chromeExtensionOrigin = "chrome-extension://"
+
+// isNativeMessagingHost returns true if a browser extension started the binary as its native
+// messaging host. Piped stdin can't be used to detect it, as session providers (go-c8y-cli),
+// MCP servers and scripts also run the binary with piped stdin
+func isNativeMessagingHost(args []string) bool {
+	return len(args) > 0 && strings.HasPrefix(args[0], chromeExtensionOrigin)
+}
+
 func Execute() {
+	// Started by the browser: skip the flag parsing, as Chrome on Windows also passes
+	// --parent-window=<handle>
+	if isNativeMessagingHost(os.Args[1:]) {
+		setupLogging("")
+		if err := runNativeMessaging(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	err := rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)
