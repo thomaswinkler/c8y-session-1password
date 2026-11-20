@@ -180,3 +180,59 @@ func TestFilterSessions_UsernameSpecific(t *testing.T) {
 		})
 	}
 }
+
+func TestFilterSessions_ItemID(t *testing.T) {
+	sessions := []*CumulocitySession{
+		{
+			Name:     "Session A",
+			ItemName: "Item A",
+			ItemID:   "2fkv5tn7nf5vokjysxl6zq2lgu",
+			Host:     "https://a.example.com",
+			Username: "john.doe",
+		},
+		{
+			// second URL of the same item
+			Name:     "Session A2",
+			ItemName: "Item A",
+			ItemID:   "2fkv5tn7nf5vokjysxl6zq2lgu",
+			Host:     "https://a2.example.com",
+			Username: "john.doe",
+		},
+		{
+			Name:     "Session B",
+			ItemName: "Item B",
+			ItemID:   "wigtgodabhe627cw7smcdiaoc4",
+			Host:     "https://b.example.com",
+			Username: "jane.smith",
+		},
+	}
+
+	tests := []struct {
+		filter   string
+		expected []string
+	}{
+		{"wigtgodabhe627cw7smcdiaoc4", []string{"Session B"}},               // exact item ID
+		{"WIGTGODABHE627CW7SMCDIAOC4", []string{"Session B"}},               // case insensitive
+		{"2fkv5tn7nf5vokjysxl6zq2lgu", []string{"Session A", "Session A2"}}, // all URLs of the item
+		{"wigtgod", []string{}},                                             // partial item ID doesn't match
+	}
+
+	for _, tt := range tests {
+		t.Run("item_id_filter_"+tt.filter, func(t *testing.T) {
+			result := FilterSessions(sessions, tt.filter)
+
+			if len(result) != len(tt.expected) {
+				t.Errorf("Expected %d sessions for filter '%s', got %d",
+					len(tt.expected), tt.filter, len(result))
+				return
+			}
+
+			for i, expectedName := range tt.expected {
+				if result[i].Name != expectedName {
+					t.Errorf("Expected session '%s' at index %d, got '%s'",
+						expectedName, i, result[i].Name)
+				}
+			}
+		})
+	}
+}

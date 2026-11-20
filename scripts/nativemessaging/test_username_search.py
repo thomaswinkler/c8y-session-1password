@@ -85,7 +85,7 @@ def send_message(message):
         
         # Start the process
         process = subprocess.Popen(
-            [binary_path],
+            [binary_path, 'chrome-extension://test/'],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE

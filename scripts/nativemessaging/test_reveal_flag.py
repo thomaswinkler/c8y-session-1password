@@ -52,7 +52,7 @@ def test_reveal_flag():
     os.chdir(project_root)
     
     # Start the native messaging host
-    cmd = ['./bin/c8y-session-1password']
+    cmd = ['./bin/c8y-session-1password', 'chrome-extension://test/']
     process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     
     try:

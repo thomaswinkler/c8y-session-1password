@@ -54,7 +54,7 @@ Direct item access:
 - Use --vault flag to limit searches to specific vault(s)
 
 Native messaging mode:
-- Automatically activated when JSON is piped via stdin
+- Activated when started by a Chrome extension (caller origin chrome-extension://<id>/ as first argument)
 - Compatible with Chrome extension native messaging protocol
 - Reads JSON with vaults, tags, and search criteria
 
@@ -89,13 +89,6 @@ Environment Variables:
 		setupLogging(logLevel)
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Check if there's input available on stdin (automatic detection)
-		stat, err := os.Stdin.Stat()
-		if err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
-			// stdin has data (pipe or redirect), switch to native messaging mode
-			return runNativeMessaging()
-		}
-
 		vault, err := cmd.Flags().GetString("vault")
 		if err != nil {
 			return err
@@ -137,6 +130,17 @@ Environment Variables:
 			return err
 		}
 
+		list, err := cmd.Flags().GetBool("list")
+		if err != nil {
+			return err
+		}
+		if list && reveal {
+			return fmt.Errorf("--list can't be used with --reveal, as it never outputs secrets")
+		}
+		if list && (cmd.Flags().Changed("item") || cmd.Flags().Changed("uri")) {
+			return fmt.Errorf("--list can't be used with --item or --uri")
+		}
+
 		// Combine no-color flags (either --no-color or --noColor disables colors)
 		noColorFinal := noColor || noColorCompat
 
@@ -146,37 +150,19 @@ Environment Variables:
 			filter = args[0]
 		}
 
-		// Get default values from environment variables
-		if vault == "" {
-			vault = getEnvWithFallback("C8YOP_VAULT", "CYOP_VAULT")
-		}
-
-		if item == "" {
-			item = getEnvWithFallback("C8YOP_ITEM", "CYOP_ITEM")
-		}
-
-		// Parse op:// URI if provided
-		if opURI != "" {
-			vaultFromURI, itemFromURI, err := onepassword.ParseOPURI(opURI)
-			if err != nil {
-				return fmt.Errorf("invalid URI: %w", err)
-			}
-			// URI takes precedence over individual flags
-			if vault == "" || vault == vaultFromURI {
-				vault = vaultFromURI
-			}
-			if item == "" || item == itemFromURI {
-				item = itemFromURI
-			}
+		vault, item, targetURL, err := resolveItem(vault, item, opURI)
+		if err != nil {
+			return err
 		}
 
 		// Get tags using helper function
 		tags := parseTags(tagsFlag)
 
-		// If we have a specific item, get it directly (vault is optional)
-		if item != "" {
+		// If we have a specific item, get it directly (vault is optional). C8YOP_ITEM is
+		// ignored when listing
+		if item != "" && !list {
 			client := onepassword.NewClient(vault, tags...)
-			session, err := client.GetItem(vault, item)
+			session, err := client.GetItem(vault, item, targetURL)
 			if err != nil {
 				return err
 			}
@@ -194,14 +180,19 @@ Environment Variables:
 			return err
 		}
 
-		if len(sessions) == 0 {
-			return fmt.Errorf("no sessions found matching tags: %v", tags)
-		}
-
 		// Apply filter if provided
 		filteredSessions := sessions
 		if filter != "" {
 			filteredSessions = core.FilterSessions(sessions, filter)
+		}
+
+		// List all matching sessions without secrets, e.g. for the session picker of another tool
+		if list {
+			return outputSessionList(filteredSessions, outputFormat)
+		}
+
+		if len(sessions) == 0 {
+			return fmt.Errorf("no sessions found matching tags: %v", tags)
 		}
 
 		// Smart selection behavior
@@ -233,7 +224,50 @@ Environment Variables:
 	},
 }
 
+// resolveItem returns the vault, item and target URL to use. An op:// URI takes precedence over
+// the vault and item flags and the C8YOP_VAULT and C8YOP_ITEM environment variables, as it
+// identifies exactly one session. Otherwise the environment variables are used if the flags are empty
+func resolveItem(vault, item, opURI string) (string, string, string, error) {
+	if opURI != "" {
+		vaultFromURI, itemFromURI, targetURL, err := onepassword.ParseOPURI(opURI)
+		if err != nil {
+			return "", "", "", fmt.Errorf("invalid URI: %w", err)
+		}
+		return vaultFromURI, itemFromURI, targetURL, nil
+	}
+
+	if vault == "" {
+		vault = getEnvWithFallback("C8YOP_VAULT", "CYOP_VAULT")
+	}
+	if item == "" {
+		item = getEnvWithFallback("C8YOP_ITEM", "CYOP_ITEM")
+	}
+	return vault, item, "", nil
+}
+
+// chromeExtensionOrigin prefix of the caller origin, which Chrome (and other Chromium based
+// browsers) passes as the first argument when starting a native messaging host
+const chromeExtensionOrigin = "chrome-extension://"
+
+// isNativeMessagingHost returns true if a browser extension started the binary as its native
+// messaging host. Piped stdin can't be used to detect it, as session providers (go-c8y-cli),
+// MCP servers and scripts also run the binary with piped stdin
+func isNativeMessagingHost(args []string) bool {
+	return len(args) > 0 && strings.HasPrefix(args[0], chromeExtensionOrigin)
+}
+
 func Execute() {
+	// Started by the browser: skip the flag parsing, as Chrome on Windows also passes
+	// --parent-window=<handle>
+	if isNativeMessagingHost(os.Args[1:]) {
+		setupLogging("")
+		if err := runNativeMessaging(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	err := rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)
@@ -277,6 +311,7 @@ func init() {
 	rootCmd.PersistentFlags().String("tags", "", "Comma-separated tags to filter by (defaults to C8YOP_TAGS env var, then 'c8y')")
 	rootCmd.PersistentFlags().StringP("output", "o", "json", "Output format (json, uri)")
 	rootCmd.PersistentFlags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
+	rootCmd.PersistentFlags().Bool("list", false, "List all matching sessions without passwords and TOTP secrets, instead of selecting one (JSON array, or one URI per line with --output uri)")
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable colored output in picker")
 	rootCmd.PersistentFlags().Bool("noColor", false, "Disable colored output in picker (go-c8y-cli compatibility)")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose logging")
@@ -285,8 +320,14 @@ func init() {
 	// Hidden flags which are only there to satisfy the go-c8y-cli session interface
 	rootCmd.PersistentFlags().String("loginType", "", "Not used (hidden)")
 	rootCmd.PersistentFlags().Bool("clear", false, "Not used (hidden)")
+	rootCmd.PersistentFlags().String("browserCallback", "", "Not used (hidden)")
+	rootCmd.PersistentFlags().String("sso-scopes", "", "Not used (hidden)")
+	rootCmd.PersistentFlags().String("sso-audience", "", "Not used (hidden)")
 	_ = rootCmd.PersistentFlags().MarkHidden("loginType")
 	_ = rootCmd.PersistentFlags().MarkHidden("clear")
+	_ = rootCmd.PersistentFlags().MarkHidden("browserCallback")
+	_ = rootCmd.PersistentFlags().MarkHidden("sso-scopes")
+	_ = rootCmd.PersistentFlags().MarkHidden("sso-audience")
 
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(debugColorsCmd)
@@ -434,6 +475,37 @@ func outputSession(session *core.CumulocitySession, reveal bool, outputFormat st
 		return outputSessionAsJSON(session, reveal)
 	case "uri":
 		return outputSessionAsURI(session)
+	default:
+		return fmt.Errorf("unsupported output format: %s (supported: json, uri)", outputFormat)
+	}
+}
+
+// Helper function to output a list of sessions without secrets in the specified format: a JSON
+// array, or one URI per line. An empty list is not an error
+func outputSessionList(sessions []*core.CumulocitySession, outputFormat string) error {
+	switch outputFormat {
+	case "json":
+		listed := make([]core.CumulocitySession, 0, len(sessions))
+		for _, session := range sessions {
+			listedSession := *session
+			listedSession.Password = ""
+			listedSession.TOTP = ""
+			listedSession.TOTPSecret = ""
+			listed = append(listed, listedSession)
+		}
+		out, err := json.MarshalIndent(listed, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s\n", out)
+		return nil
+	case "uri":
+		for _, session := range sessions {
+			if err := outputSessionAsURI(session); err != nil {
+				return err
+			}
+		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported output format: %s (supported: json, uri)", outputFormat)
 	}
