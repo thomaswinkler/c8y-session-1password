@@ -309,7 +309,7 @@ There is flexibility in how you configure URLs for Cumulocity instances. If ther
 
 The `sessionUri` of these sessions includes the URL as `target_url` parameter, e.g. `op://Employee/abc123?target_url=https%3A%2F%2Fmyinstance.cumulocity.com`, so it identifies the session and can be used with `--uri`. Sessions of items with one URL use `op://vault/item`, which the 1Password CLI also supports.
 
-URLs should be absolute URLs pointing to the Cumulocity instance, e.g. `https://myinstance.cumulocity.com`. The url will be used to identify the session in the picker. The label of the field, also if customized, is not used for the session or it's presentation in the picker.
+URLs should be absolute URLs pointing to the Cumulocity instance, e.g. `https://myinstance.cumulocity.com`. The url will be used to identify the session in the picker. A path, query, or fragment is removed, so a URL copied from the browser, e.g. `https://myinstance.cumulocity.com/apps/cockpit/index.html#/`, also works. URLs of the same instance in one item result in one session. The label of the field, also if customized, is not used for the session or it's presentation in the picker.
 
 The following fields will be searched for URLs:
 
