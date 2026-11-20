@@ -150,30 +150,9 @@ Environment Variables:
 			filter = args[0]
 		}
 
-		// Get default values from environment variables
-		if vault == "" {
-			vault = getEnvWithFallback("C8YOP_VAULT", "CYOP_VAULT")
-		}
-
-		if item == "" {
-			item = getEnvWithFallback("C8YOP_ITEM", "CYOP_ITEM")
-		}
-
-		// Parse op:// URI if provided
-		var targetURL string
-		if opURI != "" {
-			vaultFromURI, itemFromURI, targetFromURI, err := onepassword.ParseOPURI(opURI)
-			if err != nil {
-				return fmt.Errorf("invalid URI: %w", err)
-			}
-			// URI takes precedence over individual flags
-			if vault == "" || vault == vaultFromURI {
-				vault = vaultFromURI
-			}
-			if item == "" || item == itemFromURI {
-				item = itemFromURI
-			}
-			targetURL = targetFromURI
+		vault, item, targetURL, err := resolveItem(vault, item, opURI)
+		if err != nil {
+			return err
 		}
 
 		// Get tags using helper function
@@ -243,6 +222,27 @@ Environment Variables:
 			return outputSession(session, reveal, outputFormat)
 		}
 	},
+}
+
+// resolveItem returns the vault, item and target URL to use. An op:// URI takes precedence over
+// the vault and item flags and the C8YOP_VAULT and C8YOP_ITEM environment variables, as it
+// identifies exactly one session. Otherwise the environment variables are used if the flags are empty
+func resolveItem(vault, item, opURI string) (string, string, string, error) {
+	if opURI != "" {
+		vaultFromURI, itemFromURI, targetURL, err := onepassword.ParseOPURI(opURI)
+		if err != nil {
+			return "", "", "", fmt.Errorf("invalid URI: %w", err)
+		}
+		return vaultFromURI, itemFromURI, targetURL, nil
+	}
+
+	if vault == "" {
+		vault = getEnvWithFallback("C8YOP_VAULT", "CYOP_VAULT")
+	}
+	if item == "" {
+		item = getEnvWithFallback("C8YOP_ITEM", "CYOP_ITEM")
+	}
+	return vault, item, "", nil
 }
 
 // chromeExtensionOrigin prefix of the caller origin, which Chrome (and other Chromium based

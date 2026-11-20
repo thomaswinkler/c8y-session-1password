@@ -114,3 +114,51 @@ func TestOutputSessionList(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveItem(t *testing.T) {
+	tests := []struct {
+		name              string
+		vault             string
+		item              string
+		opURI             string
+		envVault          string
+		envItem           string
+		expectedVault     string
+		expectedItem      string
+		expectedTargetURL string
+		expectError       bool
+	}{
+		{name: "flags", vault: "Employee", item: "Production", expectedVault: "Employee", expectedItem: "Production"},
+		{name: "environment variables", envVault: "Employee", envItem: "Production", expectedVault: "Employee", expectedItem: "Production"},
+		{name: "flags before environment variables", vault: "Shared", item: "Test", envVault: "Employee", envItem: "Production", expectedVault: "Shared", expectedItem: "Test"},
+		{name: "uri", opURI: "op://vault1/item1", expectedVault: "vault1", expectedItem: "item1"},
+		{name: "uri with target url", opURI: "op://vault1/item1?target_url=https%3A%2F%2Fprod.example.com", expectedVault: "vault1", expectedItem: "item1", expectedTargetURL: "https://prod.example.com"},
+		{name: "uri before environment variables", opURI: "op://vault1/item1", envVault: "Employee", envItem: "Production", expectedVault: "vault1", expectedItem: "item1"},
+		{name: "uri before flags", opURI: "op://vault1/item1", vault: "Shared", item: "Test", expectedVault: "vault1", expectedItem: "item1"},
+		{name: "invalid uri", opURI: "op://vault1", expectError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("C8YOP_VAULT", tt.envVault)
+			t.Setenv("C8YOP_ITEM", tt.envItem)
+			t.Setenv("CYOP_VAULT", "")
+			t.Setenv("CYOP_ITEM", "")
+
+			vault, item, targetURL, err := resolveItem(tt.vault, tt.item, tt.opURI)
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error, got vault=%q item=%q", vault, item)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if vault != tt.expectedVault || item != tt.expectedItem || targetURL != tt.expectedTargetURL {
+				t.Errorf("resolveItem() = (%q, %q, %q), expected (%q, %q, %q)",
+					vault, item, targetURL, tt.expectedVault, tt.expectedItem, tt.expectedTargetURL)
+			}
+		})
+	}
+}
