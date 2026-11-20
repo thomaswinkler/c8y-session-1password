@@ -78,3 +78,21 @@ func containsAt(s, substr string) bool {
 	}
 	return false
 }
+
+func TestBuildSessionTargetURI(t *testing.T) {
+	tests := []struct {
+		sessionURI string
+		targetURL  string
+		expected   string
+	}{
+		{"op://vault/item", "https://example.cumulocity.com", "op://vault/item?target_url=https%3A%2F%2Fexample.cumulocity.com"},
+		{"op://vault/item", "https://example.cumulocity.com/apps?x=1&y=2", "op://vault/item?target_url=https%3A%2F%2Fexample.cumulocity.com%2Fapps%3Fx%3D1%26y%3D2"},
+		{"op://vault/item", "", "op://vault/item"},
+	}
+
+	for _, test := range tests {
+		if got := BuildSessionTargetURI(test.sessionURI, test.targetURL); got != test.expected {
+			t.Errorf("BuildSessionTargetURI(%q, %q) = %q; expected %q", test.sessionURI, test.targetURL, got, test.expected)
+		}
+	}
+}
