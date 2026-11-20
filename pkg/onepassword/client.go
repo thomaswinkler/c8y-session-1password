@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -657,34 +658,45 @@ func GetTOTPCodeFromSecret(secret string) (string, error) {
 	return GetTOTPCode(secret, totpTime)
 }
 
-// ParseOPURI parses an op://vault/item URI and returns vault and item components
-func ParseOPURI(uri string) (vault, item string, err error) {
+// ParseOPURI parses an op://vault/item URI and returns vault and item components, and the
+// optional target_url parameter, which selects the URL of an item with multiple URLs
+func ParseOPURI(uri string) (vault, item, targetURL string, err error) {
 	if !strings.HasPrefix(uri, "op://") {
-		return "", "", fmt.Errorf("invalid op:// URI format: %s", uri)
+		return "", "", "", fmt.Errorf("invalid op:// URI format: %s", uri)
 	}
 
 	path := strings.TrimPrefix(uri, "op://")
+	path, query, _ := strings.Cut(path, "?")
 	parts := strings.SplitN(path, "/", 2)
 	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid op:// URI format: expected op://vault/item, got %s", uri)
+		return "", "", "", fmt.Errorf("invalid op:// URI format: expected op://vault/item, got %s", uri)
 	}
 
 	vault = parts[0]
 	item = parts[1]
 
 	if vault == "" {
-		return "", "", fmt.Errorf("invalid op:// URI format: vault cannot be empty, got %s", uri)
+		return "", "", "", fmt.Errorf("invalid op:// URI format: vault cannot be empty, got %s", uri)
 	}
 
 	if item == "" {
-		return "", "", fmt.Errorf("invalid op:// URI format: item cannot be empty, got %s", uri)
+		return "", "", "", fmt.Errorf("invalid op:// URI format: item cannot be empty, got %s", uri)
 	}
 
-	return vault, item, nil
+	if query != "" {
+		values, err := url.ParseQuery(query)
+		if err != nil {
+			return "", "", "", fmt.Errorf("invalid op:// URI format: invalid parameters in %s: %w", uri, err)
+		}
+		targetURL = values.Get("target_url")
+	}
+
+	return vault, item, targetURL, nil
 }
 
-// GetItem retrieves a specific item from 1Password by vault and item identifier
-func (c *Client) GetItem(vaultIdentifier, itemIdentifier string) (*core.CumulocitySession, error) {
+// GetItem retrieves a specific item from 1Password by vault and item identifier. If the item
+// has multiple URLs, targetURL selects the session of that URL, otherwise the first session is returned
+func (c *Client) GetItem(vaultIdentifier, itemIdentifier, targetURL string) (*core.CumulocitySession, error) {
 	if err := c.ensureChecked(); err != nil {
 		return nil, err
 	}
@@ -694,15 +706,19 @@ func (c *Client) GetItem(vaultIdentifier, itemIdentifier string) (*core.Cumuloci
 
 	// If no vaults specified, try without vault filter
 	if len(vaultNames) == 0 {
-		return c.getItemFromVault("", itemIdentifier)
+		sessions, err := c.getItemFromVault("", itemIdentifier)
+		if err != nil {
+			return nil, err
+		}
+		return selectSession(sessions, targetURL)
 	}
 
 	// Try each vault in order until we find the item
 	var lastErr error
 	for _, vaultName := range vaultNames {
-		session, err := c.getItemFromVault(vaultName, itemIdentifier)
+		sessions, err := c.getItemFromVault(vaultName, itemIdentifier)
 		if err == nil {
-			return session, nil
+			return selectSession(sessions, targetURL)
 		}
 		lastErr = err
 		slog.Debug("Item not found in vault", "vault", vaultName, "item", itemIdentifier, "error", err)
@@ -713,8 +729,22 @@ func (c *Client) GetItem(vaultIdentifier, itemIdentifier string) (*core.Cumuloci
 		itemIdentifier, strings.Join(vaultNames, ", "), lastErr)
 }
 
-// getItemFromVault retrieves an item from a specific vault (or any vault if empty)
-func (c *Client) getItemFromVault(vaultIdentifier, itemIdentifier string) (*core.CumulocitySession, error) {
+// selectSession returns the session of the target URL, or the first session if no target URL is given
+func selectSession(sessions []*core.CumulocitySession, targetURL string) (*core.CumulocitySession, error) {
+	if targetURL == "" {
+		slog.Debug("Returning first session", "session_host", sessions[0].Host, "session_item_id", sessions[0].ItemID)
+		return sessions[0], nil
+	}
+	for _, session := range sessions {
+		if strings.EqualFold(strings.TrimSuffix(session.Host, "/"), strings.TrimSuffix(targetURL, "/")) {
+			return session, nil
+		}
+	}
+	return nil, fmt.Errorf("item '%s' has no URL %s", sessions[0].ItemName, targetURL)
+}
+
+// getItemFromVault retrieves the sessions of an item (one per URL) from a specific vault (or any vault if empty)
+func (c *Client) getItemFromVault(vaultIdentifier, itemIdentifier string) ([]*core.CumulocitySession, error) {
 	// Build the op item get command
 	args := []string{"item", "get", itemIdentifier, "--format", "json"}
 	if vaultIdentifier != "" {
@@ -747,8 +777,7 @@ func (c *Client) getItemFromVault(vaultIdentifier, itemIdentifier string) (*core
 	sessions := c.mapToSessions(&item, vaults)
 	slog.Debug("Created sessions for single item", "item_id", item.ID, "item_title", item.Title, "session_count", len(sessions))
 	if len(sessions) > 0 {
-		slog.Debug("Returning first session", "session_host", sessions[0].Host, "session_item_id", sessions[0].ItemID)
-		return sessions[0], nil
+		return sessions, nil
 	}
 	return nil, fmt.Errorf("no valid session found for item")
 }

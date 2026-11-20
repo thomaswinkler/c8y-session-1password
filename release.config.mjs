@@ -20,6 +20,21 @@ export default {
         },
       },
     ],
-    "@semantic-release/github",
+    [
+      "@semantic-release/exec",
+      {
+        prepareCmd: "./scripts/build.sh ${nextRelease.version}",
+      },
+    ],
+    [
+      "@semantic-release/github",
+      {
+        assets: [
+          { path: "dist/*.tar.gz" },
+          { path: "dist/*.zip" },
+          { path: "dist/checksums.txt" },
+        ],
+      },
+    ],
   ],
 };

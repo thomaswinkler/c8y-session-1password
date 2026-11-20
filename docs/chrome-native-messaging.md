@@ -5,7 +5,7 @@ The `c8y-session-1password` tool now supports Chrome Extension Native Messaging 
 ## Features
 
 ### Native Messaging Mode
-- **Automatic Detection**: When input is piped via stdin, the tool automatically switches to native messaging mode
+- **Automatic Detection**: When Chrome starts the tool, it passes the caller origin (`chrome-extension://<id>/`) as the first argument, and the tool switches to native messaging mode. Piped stdin alone does not switch the mode, so session providers, MCP servers, and scripts can run the tool without a terminal
 - **Chrome Protocol**: Implements the full Chrome Native Messaging protocol with 4-byte length prefixes
 - **Persistent Connection**: Maintains a persistent connection with message loop for multiple requests
 - **Proper Logging**: All logs go to stderr, keeping stdout clean for Chrome communication

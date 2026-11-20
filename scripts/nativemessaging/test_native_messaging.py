@@ -25,7 +25,7 @@ def test_native_host():
     
     # Start the native host (from project root)
     process = subprocess.Popen(
-        ['./bin/c8y-session-1password'],
+        ['./bin/c8y-session-1password', 'chrome-extension://test/'],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE

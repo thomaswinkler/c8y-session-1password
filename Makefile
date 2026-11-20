@@ -16,7 +16,7 @@ GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 
-.PHONY: all build clean test coverage deps lint install uninstall build-all help version
+.PHONY: all build clean test coverage deps lint install uninstall build-all help version package validate-extension
 
 all: test build
 
@@ -67,6 +67,14 @@ build-all:
 	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-darwin-amd64 .
 	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-darwin-arm64 .
 	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o dist/$(BINARY_NAME)-windows-amd64.exe .
+
+## Package go-c8y-cli extension archives into dist/ (like the release)
+package:
+	./scripts/build.sh $(VERSION)
+
+## Validate the go-c8y-cli extension (needs c8y 2.57.0 or later)
+validate-extension: build
+	c8y extensions validate . --strict
 
 ## Show help
 help:

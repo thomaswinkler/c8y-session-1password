@@ -1,6 +1,8 @@
 #!/bin/bash
 
 # Build script for semantic-release
+# Builds the binaries and packages them as go-c8y-cli extension archives
+# (extension.yaml and bin/c8y-session-1password), which "c8y extensions install" downloads
 # Usage: build.sh <version>
 
 set -e
@@ -23,61 +25,63 @@ echo "Commit: ${COMMIT}, Date: ${DATE}"
 LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}"
 BINARY_NAME="c8y-session-1password"
 
-# Create dist directory
+# Files included in each archive next to the binary
+FILES=(extension.yaml README.md LICENSE)
+
+# Create a clean dist directory
+rm -rf dist
 mkdir -p dist
 echo "Created dist directory"
 
 echo "Building binaries for version ${VERSION}..."
 
-# Build for different platforms
+# Build for the same platforms as go-c8y-cli
 platforms=(
+    "linux/386"
+    "linux/arm"
     "linux/amd64"
     "linux/arm64"
     "darwin/amd64"
     "darwin/arm64"
+    "windows/386"
     "windows/amd64"
+    "windows/arm64"
 )
+
+# Pure Go binaries, which don't depend on the system's C libraries
+export CGO_ENABLED=0
+# 32-bit arm: c8y only selects one arm asset, and ARMv6 also runs on ARMv7
+export GOARM=6
 
 for platform in "${platforms[@]}"; do
     IFS='/' read -r GOOS GOARCH <<< "$platform"
-    
-    output_name="${BINARY_NAME}-${GOOS}-${GOARCH}"
+
+    binary="${BINARY_NAME}"
     if [ "$GOOS" = "windows" ]; then
-        output_name="${output_name}.exe"
+        binary="${binary}.exe"
     fi
-    
-    echo "Building ${output_name}..."
-    GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="$LDFLAGS" -o "dist/${output_name}" .
+
+    # go-c8y-cli selects the asset by the <os>_<arch> suffix
+    archive_name="${BINARY_NAME}_${VERSION}_${GOOS}_${GOARCH}"
+    staging="dist/${archive_name}"
+    mkdir -p "${staging}/bin"
+
+    echo "Building ${archive_name}..."
+    GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="$LDFLAGS" -o "${staging}/bin/${binary}" .
+    cp "${FILES[@]}" "${staging}/"
+
+    if [ "$GOOS" = "windows" ]; then
+        (cd "${staging}" && zip -q -r "../${archive_name}.zip" "${FILES[@]}" bin)
+    else
+        tar -czf "dist/${archive_name}.tar.gz" -C "${staging}" "${FILES[@]}" bin
+    fi
+    rm -rf "${staging}"
 done
-
-echo "Creating archives..."
-
-# Create archives for each platform
-cd dist
-
-# Linux amd64
-echo "Creating Linux amd64 archive..."
-tar -czf "${BINARY_NAME}-linux-amd64.tar.gz" "${BINARY_NAME}-linux-amd64"
-
-# Linux arm64
-echo "Creating Linux arm64 archive..."
-tar -czf "${BINARY_NAME}-linux-arm64.tar.gz" "${BINARY_NAME}-linux-arm64"
-
-# macOS amd64
-echo "Creating macOS amd64 archive..."
-tar -czf "${BINARY_NAME}-darwin-amd64.tar.gz" "${BINARY_NAME}-darwin-amd64"
-
-# macOS arm64
-echo "Creating macOS arm64 archive..."
-tar -czf "${BINARY_NAME}-darwin-arm64.tar.gz" "${BINARY_NAME}-darwin-arm64"
-
-# Windows amd64
-echo "Creating Windows amd64 archive..."
-zip -q "${BINARY_NAME}-windows-amd64.zip" "${BINARY_NAME}-windows-amd64.exe"
 
 echo "Generating checksums..."
 
-# Generate checksums
+# Generate checksums (GoReleaser format, verified by "c8y extensions install")
+cd dist
 if command -v sha256sum >/dev/null 2>&1; then
     sha256sum *.tar.gz *.zip > checksums.txt
 elif command -v shasum >/dev/null 2>&1; then
@@ -85,7 +89,6 @@ elif command -v shasum >/dev/null 2>&1; then
 else
     echo "Warning: No checksum utility found"
 fi
-
 cd ..
 
 echo "Build complete! Artifacts in dist/"
