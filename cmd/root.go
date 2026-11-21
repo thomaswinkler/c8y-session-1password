@@ -486,18 +486,13 @@ func outputSessionList(sessions []*core.CumulocitySession, outputFormat string) 
 	case "json":
 		listed := make([]core.CumulocitySession, 0, len(sessions))
 		for _, session := range sessions {
-			listedSession := *session
-			listedSession.Password = ""
-			listedSession.TOTP = ""
-			listedSession.TOTPSecret = ""
-			listed = append(listed, listedSession)
+			listed = append(listed, sessionWithoutSecrets(session))
 		}
 		out, err := json.MarshalIndent(listed, "", "  ")
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%s\n", out)
-		return nil
+		return writeOutput(out)
 	case "uri":
 		for _, session := range sessions {
 			if err := outputSessionAsURI(session); err != nil {
@@ -532,7 +527,33 @@ func outputSessionAsJSON(session *core.CumulocitySession, reveal bool) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s\n", out)
+	// Credentials are only included when the user explicitly asked for them with --reveal.
+	// They are written to stdout as the command's result, never to the log.
+	return writeOutput(out)
+}
+
+// sessionWithoutSecrets returns a copy of the session that only contains the fields which are
+// safe to list. Fields are copied explicitly, so a new secret field is never listed by accident
+func sessionWithoutSecrets(session *core.CumulocitySession) core.CumulocitySession {
+	return core.CumulocitySession{
+		SessionURI: session.SessionURI,
+		Name:       session.Name,
+		Host:       session.Host,
+		Username:   session.Username,
+		Tenant:     session.Tenant,
+		ItemID:     session.ItemID,
+		ItemName:   session.ItemName,
+		VaultID:    session.VaultID,
+		VaultName:  session.VaultName,
+		Tags:       session.Tags,
+	}
+}
+
+// writeOutput writes the command's result to stdout, followed by a newline
+func writeOutput(out []byte) error {
+	if _, err := os.Stdout.Write(append(out, '\n')); err != nil {
+		return fmt.Errorf("failed to write output: %w", err)
+	}
 	return nil
 }
 
@@ -702,7 +723,7 @@ func processNativeMessagingRequest(req NativeMessagingRequest) error {
 		session := filteredSessions[0]
 		// Populate session details and TOTP from the full session list
 		populateSessionFromList(session, sessions)
-		return outputSessionNativeMessaging(session, req.Reveal, true) // Use reveal flag from request
+		return outputSessionNativeMessaging(session, req.Reveal) // Use reveal flag from request
 	} else {
 		// Multiple sessions found, return as JSON array
 		var outputSessions []*core.CumulocitySession
@@ -711,7 +732,7 @@ func processNativeMessagingRequest(req NativeMessagingRequest) error {
 			populateSessionFromList(session, sessions)
 			outputSessions = append(outputSessions, session)
 		}
-		return outputSessionsNativeMessaging(outputSessions, req.Reveal, true) // Use reveal flag from request
+		return outputSessionsNativeMessaging(outputSessions, req.Reveal) // Use reveal flag from request
 	}
 }
 
@@ -745,30 +766,23 @@ func applyRevealFlag(session *core.CumulocitySession, reveal bool) *core.Cumuloc
 	return &outputSession
 }
 
-// Helper function to output JSON data for native messaging
-func outputJSONNativeMessaging(data interface{}, isNativeMessagingFormat bool) error {
+// Helper function to send JSON data as a native message to the browser extension
+func outputJSONNativeMessaging(data interface{}) error {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal data to JSON: %w", err)
 	}
-
-	if isNativeMessagingFormat {
-		return writeNativeMessage(jsonData)
-	} else {
-		// Plain JSON output
-		fmt.Printf("%s\n", jsonData)
-		return nil
-	}
+	return writeNativeMessage(jsonData)
 }
 
 // Helper function to output single session for native messaging
-func outputSessionNativeMessaging(session *core.CumulocitySession, reveal bool, isNativeMessagingFormat bool) error {
+func outputSessionNativeMessaging(session *core.CumulocitySession, reveal bool) error {
 	outputSession := applyRevealFlag(session, reveal)
-	return outputJSONNativeMessaging(outputSession, isNativeMessagingFormat)
+	return outputJSONNativeMessaging(outputSession)
 }
 
 // Helper function to output multiple sessions for native messaging
-func outputSessionsNativeMessaging(sessions []*core.CumulocitySession, reveal bool, isNativeMessagingFormat bool) error {
+func outputSessionsNativeMessaging(sessions []*core.CumulocitySession, reveal bool) error {
 	// Apply reveal flag to all sessions using the helper function
 	var outputSessions []*core.CumulocitySession
 	for _, session := range sessions {
@@ -776,7 +790,7 @@ func outputSessionsNativeMessaging(sessions []*core.CumulocitySession, reveal bo
 		outputSessions = append(outputSessions, outputSession)
 	}
 
-	return outputJSONNativeMessaging(outputSessions, isNativeMessagingFormat)
+	return outputJSONNativeMessaging(outputSessions)
 }
 
 // Helper function to write native messaging format
