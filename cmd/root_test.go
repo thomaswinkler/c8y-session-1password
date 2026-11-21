@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"os"
@@ -197,5 +198,109 @@ func TestSessionWithoutSecrets(t *testing.T) {
 		if !reflect.DeepEqual(listed.Field(i).Interface(), value.Field(i).Interface()) {
 			t.Errorf("field %s is not copied by sessionWithoutSecrets", name)
 		}
+	}
+}
+
+// TestOutputSessionReveal makes sure that secrets are masked by default and only output
+// unchanged when reveal is requested, for the CLI and for native messaging
+func TestOutputSessionReveal(t *testing.T) {
+	newSession := func() *core.CumulocitySession {
+		return &core.CumulocitySession{
+			Name:       "Production",
+			Host:       "https://prod.example.com",
+			Username:   "admin",
+			Password:   "secret-password",
+			TOTP:       "123456",
+			TOTPSecret: "secret-totp",
+		}
+	}
+
+	// decodeNativeMessage checks the 4-byte length prefix and returns the JSON payload
+	decodeNativeMessage := func(t *testing.T, out string) []byte {
+		t.Helper()
+		if len(out) < 4 {
+			t.Fatalf("native message too short: %q", out)
+		}
+		length := binary.LittleEndian.Uint32([]byte(out[:4]))
+		payload := []byte(out[4:])
+		if int(length) != len(payload) {
+			t.Fatalf("length prefix %d does not match payload length %d", length, len(payload))
+		}
+		return payload
+	}
+
+	tests := []struct {
+		name     string
+		reveal   bool
+		expected core.CumulocitySession
+	}{
+		{
+			name:   "masked by default",
+			reveal: false,
+			expected: core.CumulocitySession{
+				Password: "***", TOTP: "***", TOTPSecret: "***",
+			},
+		},
+		{
+			name:   "revealed",
+			reveal: true,
+			expected: core.CumulocitySession{
+				Password: "secret-password", TOTP: "123456", TOTPSecret: "secret-totp",
+			},
+		},
+	}
+
+	assertSecrets := func(t *testing.T, got core.CumulocitySession, expected core.CumulocitySession) {
+		t.Helper()
+		if got.Password != expected.Password || got.TOTP != expected.TOTP || got.TOTPSecret != expected.TOTPSecret {
+			t.Errorf("expected password=%q totp=%q totpSecret=%q, got password=%q totp=%q totpSecret=%q",
+				expected.Password, expected.TOTP, expected.TOTPSecret, got.Password, got.TOTP, got.TOTPSecret)
+		}
+		if got.Host != "https://prod.example.com" || got.Username != "admin" {
+			t.Errorf("non-secret fields not output: %+v", got)
+		}
+	}
+
+	for _, tt := range tests {
+		t.Run("cli json "+tt.name, func(t *testing.T) {
+			session := newSession()
+			out := captureStdout(t, func() error { return outputSession(session, tt.reveal, "json") })
+			var got core.CumulocitySession
+			if err := json.Unmarshal([]byte(out), &got); err != nil {
+				t.Fatalf("output is not a JSON object: %v", err)
+			}
+			assertSecrets(t, got, tt.expected)
+			if session.Password != "secret-password" {
+				t.Errorf("original session was modified")
+			}
+		})
+
+		t.Run("native messaging single "+tt.name, func(t *testing.T) {
+			session := newSession()
+			out := captureStdout(t, func() error { return outputSessionNativeMessaging(session, tt.reveal) })
+			var got core.CumulocitySession
+			if err := json.Unmarshal(decodeNativeMessage(t, out), &got); err != nil {
+				t.Fatalf("payload is not a JSON object: %v", err)
+			}
+			assertSecrets(t, got, tt.expected)
+			if session.Password != "secret-password" {
+				t.Errorf("original session was modified")
+			}
+		})
+
+		t.Run("native messaging multiple "+tt.name, func(t *testing.T) {
+			sessions := []*core.CumulocitySession{newSession(), newSession()}
+			out := captureStdout(t, func() error { return outputSessionsNativeMessaging(sessions, tt.reveal) })
+			var got []core.CumulocitySession
+			if err := json.Unmarshal(decodeNativeMessage(t, out), &got); err != nil {
+				t.Fatalf("payload is not a JSON array: %v", err)
+			}
+			if len(got) != 2 {
+				t.Fatalf("expected 2 sessions, got %d", len(got))
+			}
+			for _, session := range got {
+				assertSecrets(t, session, tt.expected)
+			}
+		})
 	}
 }
