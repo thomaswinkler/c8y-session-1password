@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -162,5 +163,39 @@ func TestResolveItem(t *testing.T) {
 					vault, item, targetURL, tt.expectedVault, tt.expectedItem, tt.expectedTargetURL)
 			}
 		})
+	}
+}
+
+// TestSessionWithoutSecrets makes sure that every field except the secrets is kept, so a field
+// added to core.CumulocitySession later must be classified explicitly
+func TestSessionWithoutSecrets(t *testing.T) {
+	secrets := map[string]bool{"Password": true, "TOTP": true, "TOTPSecret": true}
+
+	session := core.CumulocitySession{}
+	value := reflect.ValueOf(&session).Elem()
+	for i := 0; i < value.NumField(); i++ {
+		field := value.Field(i)
+		switch field.Kind() {
+		case reflect.String:
+			field.SetString("value-" + value.Type().Field(i).Name)
+		case reflect.Slice:
+			field.Set(reflect.ValueOf([]string{"value"}))
+		default:
+			t.Fatalf("unhandled field kind %s of field %s", field.Kind(), value.Type().Field(i).Name)
+		}
+	}
+
+	listed := reflect.ValueOf(sessionWithoutSecrets(&session))
+	for i := 0; i < listed.NumField(); i++ {
+		name := listed.Type().Field(i).Name
+		if secrets[name] {
+			if !listed.Field(i).IsZero() {
+				t.Errorf("secret field %s must not be listed", name)
+			}
+			continue
+		}
+		if !reflect.DeepEqual(listed.Field(i).Interface(), value.Field(i).Interface()) {
+			t.Errorf("field %s is not copied by sessionWithoutSecrets", name)
+		}
 	}
 }
