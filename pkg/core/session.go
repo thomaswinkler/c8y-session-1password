@@ -212,6 +212,49 @@ func FilterMatchingTags(itemTags []string, requestedTags []string) []string {
 
 // MapToSessions creates one or more sessions from a 1Password item, handling multiple URLs
 // If requestedTags is provided, only matching tags will be included in the sessions
+// BaseURL returns the URL of the Cumulocity instance without path, query and fragment, e.g.
+// https://example.cumulocity.com for https://example.cumulocity.com/apps/cockpit/index.html#/,
+// as go-c8y-cli needs the base URL. A URL without scheme is returned without scheme. A value
+// which isn't a URL is returned unchanged
+func BaseURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return rawURL
+	}
+
+	if strings.Contains(rawURL, "://") {
+		u, err := url.Parse(rawURL)
+		if err != nil || u.Host == "" {
+			return rawURL
+		}
+		return u.Scheme + "://" + u.Host
+	}
+
+	u, err := url.Parse("https://" + rawURL)
+	if err != nil || u.Host == "" {
+		return rawURL
+	}
+	return u.Host
+}
+
+// baseURLs returns the URLs with their base URL (see BaseURL). URLs with the same base URL as a
+// previous URL are removed, e.g. links to different applications of the same instance, so
+// primary URLs (which are sorted first) are kept
+func baseURLs(allURLs []URLSource) []URLSource {
+	result := make([]URLSource, 0, len(allURLs))
+	seen := make(map[string]bool)
+	for _, urlSource := range allURLs {
+		urlSource.URL = BaseURL(urlSource.URL)
+		key := strings.ToLower(urlSource.URL)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, urlSource)
+	}
+	return result
+}
+
 func MapToSessions(item Item, fields ItemFields, allURLs []URLSource, vaultName string, requestedTags []string) []*CumulocitySession {
 	// Filter tags if requested
 	var filteredTags []string
@@ -220,6 +263,8 @@ func MapToSessions(item Item, fields ItemFields, allURLs []URLSource, vaultName 
 		filteredTags = FilterMatchingTags(item.Tags, requestedTags)
 		useFiltering = true
 	}
+
+	allURLs = baseURLs(allURLs)
 
 	// If no URLs found anywhere, create one session without URL
 	if len(allURLs) == 0 {
