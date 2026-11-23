@@ -41,11 +41,11 @@ def read_chrome_response(process):
     
     return json.loads(json_bytes.decode('utf-8'))
 
-def describe_password(password):
-    """Describe a password field without printing its value"""
-    if not password:
+def masking_state(value):
+    """Describe whether a secret field is empty, masked, or revealed, without its value"""
+    if not value:
         return "<empty>"
-    if password == '***':
+    if value == '***':
         return "*** (masked by host)"
     return "<revealed, value not printed>"
 
@@ -89,13 +89,13 @@ def test_reveal_flag():
             if password == '***':
                 print("✅ Password correctly hidden (***)")
             else:
-                print(f"❌ Password should be hidden but got: {describe_password(password)}")
+                print(f"❌ Password should be hidden but got: {masking_state(password)}")
                 return False
             
             print(f"   Session: {response_no_reveal['name']}")
             print(f"   Host: {response_no_reveal.get('host', 'N/A')}")
             print(f"   Username: {response_no_reveal.get('username', 'N/A')}")
-            print(f"   Password: {describe_password(password)}")
+            print(f"   Password: {masking_state(password)}")
         else:
             print("❌ Failed to get session response")
             print(f"   Response: {describe_response(response_no_reveal)}")
@@ -117,13 +117,13 @@ def test_reveal_flag():
             if password and password != '***':
                 print("✅ Password correctly revealed")
             else:
-                print(f"❌ Password should be revealed but got: {describe_password(password)}")
+                print(f"❌ Password should be revealed but got: {masking_state(password)}")
                 return False
             
             print(f"   Session: {response_with_reveal['name']}")
             print(f"   Host: {response_with_reveal.get('host', 'N/A')}")
             print(f"   Username: {response_with_reveal.get('username', 'N/A')}")
-            print(f"   Password: {describe_password(password)}")
+            print(f"   Password: {masking_state(password)}")
         else:
             print("❌ Failed to get session response")
             print(f"   Response: {describe_response(response_with_reveal)}")
@@ -145,11 +145,11 @@ def test_reveal_flag():
             if password == '***':
                 print("✅ Password correctly hidden with explicit reveal=false")
             else:
-                print(f"❌ Password should be hidden but got: {describe_password(password)}")
+                print(f"❌ Password should be hidden but got: {masking_state(password)}")
                 return False
             
             print(f"   Session: {response_explicit_false['name']}")
-            print(f"   Password: {describe_password(password)}")
+            print(f"   Password: {masking_state(password)}")
         else:
             print("❌ Failed to get session response")
             return False
@@ -172,7 +172,7 @@ def test_reveal_flag():
             for i, session in enumerate(multi_response_no_reveal[:3]):
                 password = session.get('password', '')
                 if password != '***':
-                    print(f"❌ Session {i+1} password should be hidden but got: {describe_password(password)}")
+                    print(f"❌ Session {i+1} password should be hidden but got: {masking_state(password)}")
                     all_hidden = False
                 else:
                     print(f"   {i+1}. {session.get('name', 'Unknown')} - Password: ***")
@@ -204,10 +204,10 @@ def test_reveal_flag():
             for i, session in enumerate(multi_response_with_reveal[:3]):
                 password = session.get('password', '')
                 if not password or password == '***':
-                    print(f"❌ Session {i+1} password should be revealed but got: {describe_password(password)}")
+                    print(f"❌ Session {i+1} password should be revealed but got: {masking_state(password)}")
                     all_revealed = False
                 else:
-                    print(f"   {i+1}. {session.get('name', 'Unknown')} - Password: {describe_password(password)}")
+                    print(f"   {i+1}. {session.get('name', 'Unknown')} - Password: {masking_state(password)}")
             
             if all_revealed:
                 print("✅ All passwords correctly revealed in multi-session response")
