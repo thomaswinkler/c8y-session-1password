@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -543,13 +542,8 @@ func outputSessionAsURI(session *core.CumulocitySession) error {
 		return fmt.Errorf("missing vault name or item ID for URI output")
 	}
 
-	uri := fmt.Sprintf("op://%s/%s", session.VaultID, session.ItemID)
-
 	// Add target_url parameter if session has a host URL
-	if session.Host != "" {
-		encodedURL := url.QueryEscape(session.Host)
-		uri += fmt.Sprintf("?target_url=%s", encodedURL)
-	}
+	uri := core.BuildSessionTargetURI(core.BuildSessionURI(session.VaultID, session.ItemID), session.Host)
 
 	fmt.Printf("%s\n", uri)
 	return nil

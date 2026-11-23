@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -156,6 +157,15 @@ func BuildSessionURI(vault, item string) string {
 	return fmt.Sprintf("op://%s/%s", vault, item)
 }
 
+// BuildSessionTargetURI adds the target_url parameter to a session URI, which selects the session
+// of that URL (with --uri) if the item has multiple URLs. The 1Password CLI doesn't support the parameter
+func BuildSessionTargetURI(sessionURI, targetURL string) string {
+	if targetURL == "" {
+		return sessionURI
+	}
+	return sessionURI + "?target_url=" + url.QueryEscape(targetURL)
+}
+
 // CreateSession builds a CumulocitySession from extracted data
 // If useFiltering is true, filteredTags will be used; otherwise all item tags are used
 func CreateSession(item Item, fields ItemFields, vaultName string, urlSource URLSource, sessionName, sessionURI string, filteredTags []string, useFiltering bool) *CumulocitySession {
@@ -231,6 +241,10 @@ func MapToSessions(item Item, fields ItemFields, allURLs []URLSource, vaultName 
 	for i, urlSource := range allURLs {
 		sessionName := BuildSessionName(item, urlSource, i, len(allURLs), labelCounts)
 		sessionURI := BuildSessionURI(item.Vault.ID, item.ID)
+		if len(allURLs) > 1 {
+			// All sessions of the item have the same vault and item, so the URL identifies the session
+			sessionURI = BuildSessionTargetURI(sessionURI, urlSource.URL)
+		}
 		session := CreateSession(item, fields, vaultName, urlSource, sessionName, sessionURI, filteredTags, useFiltering)
 		sessions = append(sessions, session)
 	}
