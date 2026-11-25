@@ -96,3 +96,24 @@ func TestBuildSessionTargetURI(t *testing.T) {
 		}
 	}
 }
+
+func TestParseMode(t *testing.T) {
+	tests := []struct {
+		value string
+		mode  string
+		valid bool
+	}{
+		{value: "prod", mode: "prod", valid: true},
+		{value: "qual", mode: "qual", valid: true},
+		{value: " Dev ", mode: "dev", valid: true},
+		{value: "ci"},
+		{value: "production"},
+		{value: ""},
+	}
+	for _, tt := range tests {
+		mode, valid := ParseMode(tt.value)
+		if mode != tt.mode || valid != tt.valid {
+			t.Errorf("ParseMode(%q): expected %q, %v, got %q, %v", tt.value, tt.mode, tt.valid, mode, valid)
+		}
+	}
+}

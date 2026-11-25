@@ -13,6 +13,7 @@ type CumulocitySession struct {
 	Username   string `json:"username,omitempty"`
 	Password   string `json:"password,omitempty"`
 	Tenant     string `json:"tenant,omitempty"`
+	Mode       string `json:"mode,omitempty"` // Session mode of go-c8y-cli: prod, qual or dev
 	TOTP       string `json:"totp,omitempty"`
 	TOTPSecret string `json:"totpSecret,omitempty"`
 
@@ -38,6 +39,7 @@ type ItemFields struct {
 	Password   string
 	TOTPSecret string
 	Tenant     string
+	Mode       string
 }
 
 // Item represents a simplified 1Password item for session creation
@@ -102,6 +104,11 @@ func (i CumulocitySession) Description() string {
 		args = append(args, i.Tenant)
 	}
 
+	if i.Mode != "" {
+		fields = append(fields, ", Mode=%s")
+		args = append(args, i.Mode)
+	}
+
 	if len(i.Tags) > 0 {
 		fields = append(fields, ", Tags=%s")
 		args = append(args, strings.Join(i.Tags, ","))
@@ -153,6 +160,21 @@ func BuildSessionName(item Item, urlSource URLSource, urlIndex int, totalURLs in
 	return fmt.Sprintf("%s (URL %d)", item.Title, urlIndex+1)
 }
 
+// SessionModes are the session modes of go-c8y-cli, which set the commands the session can run:
+// prod (read only), qual (also create and update) and dev (also delete)
+var SessionModes = []string{"prod", "qual", "dev"}
+
+// ParseMode returns the session mode in lower case, and false if it isn't a session mode
+func ParseMode(value string) (string, bool) {
+	mode := strings.ToLower(strings.TrimSpace(value))
+	for _, valid := range SessionModes {
+		if mode == valid {
+			return mode, true
+		}
+	}
+	return "", false
+}
+
 func BuildSessionURI(vault, item string) string {
 	return fmt.Sprintf("op://%s/%s", vault, item)
 }
@@ -184,6 +206,7 @@ func CreateSession(item Item, fields ItemFields, vaultName string, urlSource URL
 		Username:   fields.Username,
 		Password:   fields.Password,
 		Tenant:     fields.Tenant,
+		Mode:       fields.Mode,
 		Host:       urlSource.URL,
 		VaultID:    item.Vault.ID,
 		VaultName:  vaultName,

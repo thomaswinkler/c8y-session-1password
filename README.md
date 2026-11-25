@@ -52,6 +52,14 @@ claude mcp add --scope user c8y -- c8y mcp serve --sessionProvider "onepassword 
 
 Check which sessions the picker shows with `c8y sessions list --from-extension onepassword`.
 
+By default, the agent can only read data (session mode `prod`). To allow it to create and update (`qual`), or also delete data (`dev`), set the mode of the session with a `mode` field in the 1Password item (see [Optional Fields](#optional-fields)), or with `--mode` for all sessions without the field:
+
+```bash
+claude mcp add --scope user c8y-dev -- c8y mcp serve --sessionProvider "onepassword --mode dev --vault Development"
+```
+
+`c8y mcp serve --mode` limits the mode of all sessions, e.g. `--mode qual` doesn't allow deleting data in a `dev` session.
+
 ### Using Go Install
 
 ```bash
@@ -345,7 +353,8 @@ The following fields will be searched for URLs:
 
 ### Optional Fields
 
-Currently, only `tenant` field is supported as an optional field. If configured in the 1Password item, it's value will be passed as tenant id to `go-c8y-cli`. As `go-c8y-cli` determines the tenant id automatically, this is only needed if you really want to override the tenant id.
+- `tenant`: the tenant ID passed to go-c8y-cli. As go-c8y-cli determines the tenant ID automatically, this is only needed to override it.
+- `mode`: the session mode of go-c8y-cli, `prod` (read only), `qual` (also create and update) or `dev` (also delete). It applies to all URLs of the item, and takes precedence over `--mode`. Invalid values are ignored with a warning.
 
 ### Summary and Troubleshooting
 

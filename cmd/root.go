@@ -136,6 +136,19 @@ Environment Variables:
 		if list && reveal {
 			return fmt.Errorf("--list can't be used with --reveal, as it never outputs secrets")
 		}
+		modeFlag, err := cmd.Flags().GetString("mode")
+		if err != nil {
+			return err
+		}
+		defaultMode := ""
+		if modeFlag != "" {
+			mode, ok := core.ParseMode(modeFlag)
+			if !ok {
+				return fmt.Errorf("invalid mode: %s (supported: %s)", modeFlag, strings.Join(core.SessionModes, ", "))
+			}
+			defaultMode = mode
+		}
+
 		filter, uriArg, err := parseFilterArg(args, cmd.Flags().Changed("uri"))
 		if err != nil {
 			return err
@@ -166,6 +179,7 @@ Environment Variables:
 			if err != nil {
 				return err
 			}
+			applyDefaultMode([]*core.CumulocitySession{session}, defaultMode)
 
 			// Get TOTP if available
 			populateTOTP(session)
@@ -179,6 +193,7 @@ Environment Variables:
 		if err != nil {
 			return err
 		}
+		applyDefaultMode(sessions, defaultMode)
 
 		// Apply filter if provided
 		filteredSessions := sessions
@@ -222,6 +237,18 @@ Environment Variables:
 			return outputSession(session, reveal, outputFormat)
 		}
 	},
+}
+
+// applyDefaultMode sets the mode of the sessions which have no mode field in their item
+func applyDefaultMode(sessions []*core.CumulocitySession, mode string) {
+	if mode == "" {
+		return
+	}
+	for _, session := range sessions {
+		if session.Mode == "" {
+			session.Mode = mode
+		}
+	}
 }
 
 // parseFilterArg returns the filter argument, or the URI if the argument is an op:// URI. go-c8y-cli
@@ -327,6 +354,7 @@ func init() {
 	rootCmd.PersistentFlags().String("tags", "", "Comma-separated tags to filter by (defaults to C8YOP_TAGS env var, then 'c8y')")
 	rootCmd.PersistentFlags().StringP("output", "o", "json", "Output format (json, uri)")
 	rootCmd.PersistentFlags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
+	rootCmd.PersistentFlags().String("mode", "", "Session mode (prod, qual or dev) of the sessions whose item has no mode field")
 	rootCmd.PersistentFlags().Bool("list", false, "List all matching sessions without passwords and TOTP secrets, instead of selecting one (JSON array, or one URI per line with --output uri)")
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable colored output in picker")
 	rootCmd.PersistentFlags().Bool("noColor", false, "Disable colored output in picker (go-c8y-cli compatibility)")
@@ -567,6 +595,7 @@ func sessionWithoutSecrets(session *core.CumulocitySession) core.CumulocitySessi
 		Host:       session.Host,
 		Username:   session.Username,
 		Tenant:     session.Tenant,
+		Mode:       session.Mode,
 		ItemID:     session.ItemID,
 		ItemName:   session.ItemName,
 		VaultID:    session.VaultID,

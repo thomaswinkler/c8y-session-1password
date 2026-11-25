@@ -351,3 +351,24 @@ func TestParseFilterArg(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyDefaultMode(t *testing.T) {
+	newSessions := func() []*core.CumulocitySession {
+		return []*core.CumulocitySession{{Host: "https://a.example.com"}, {Host: "https://b.example.com", Mode: "prod"}}
+	}
+
+	sessions := newSessions()
+	applyDefaultMode(sessions, "dev")
+	if sessions[0].Mode != "dev" {
+		t.Errorf("expected the default mode for a session without mode, got %q", sessions[0].Mode)
+	}
+	if sessions[1].Mode != "prod" {
+		t.Errorf("expected the mode of the item to take precedence, got %q", sessions[1].Mode)
+	}
+
+	sessions = newSessions()
+	applyDefaultMode(sessions, "")
+	if sessions[0].Mode != "" || sessions[1].Mode != "prod" {
+		t.Errorf("expected no change without default mode, got %q and %q", sessions[0].Mode, sessions[1].Mode)
+	}
+}
