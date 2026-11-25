@@ -38,19 +38,38 @@ var rootCmd = &cobra.Command{
 	Short: "go-c8y-cli 1Password session selector",
 	Long: `Smart go-c8y-cli session picker from 1Password vaults
 
-This command provides smart filtering and selection of sessions:
-- Shows interactive picker for multiple sessions matching the filter
-- Automatically returns the session when filter matches exactly one item
-- Filter matches against session names, item names, URLs, and usernames
-- Support multiple urls per 1Password item showing one session per URL
-
-By default, sensitive information (passwords, TOTP secrets) is obfuscated in the output.
-Use --reveal to show the actual values.
+Selecting a session:
+- Shows an interactive picker if multiple sessions match the filter
+- Selects the session without picker if exactly one session matches
+- The filter matches session names, item names, URLs, and usernames (case-insensitive, also
+  parts), or the exact item ID
+- Items with multiple URLs show one session per URL
+- Use --tags to select items by tags (comma-separated, default: c8y), and --vault to only
+  search in some vaults (comma-separated names or IDs)
 
 Direct item access:
-- Use --item flag for direct item retrieval by ID or name
-- Use --uri flag (or an op:// URI as argument) for direct item retrieval using op://vault/item format
-- Use --vault flag to limit searches to specific vault(s)
+- Use --item to get an item by name or ID
+- Use --uri to get the session of an op://vault/item URI. For items with multiple URLs, add
+  ?target_url=<url> to select the URL (see --output uri). The URI can also be given instead
+  of the filter
+
+Output:
+- JSON in the session format of go-c8y-cli (default), or the op:// URI with --output uri
+- Passwords, TOTP codes, and TOTP secrets are obfuscated (***). Use --reveal to output them,
+  as go-c8y-cli needs them to log in
+- Use --list to output all matching sessions instead of selecting one, without passwords
+  and TOTP secrets (also with --reveal), e.g. for the session picker of "c8y mcp serve"
+  (go-c8y-cli 2.58.0 or later)
+
+Session mode:
+- A "mode" field in the 1Password item sets the go-c8y-cli session mode: prod (read only),
+  qual (also create and update) or dev (also delete)
+- Use --mode to set the mode of the sessions whose item has no mode field
+
+Logging:
+- Use -v/--verbose for info and --debug for debug messages (on stderr). They take precedence
+  over C8YOP_LOG_LEVEL
+- Use --no-color (or --noColor) to disable colors in the picker
 
 Native messaging mode:
 - Activated when started by a Chrome extension (caller origin chrome-extension://<id>/ as first argument)
@@ -70,10 +89,26 @@ Authentication options:
 
 Environment Variables:
 
- * C8YOP_VAULT - Default vault to search in (can be vault name or ID)
+ * C8YOP_VAULT - Default vaults to search in (comma-separated names or IDs)
  * C8YOP_TAGS - Default tags to filter by (comma-separated, defaults to "c8y" if not set)
  * C8YOP_ITEM - Default item to retrieve (item ID or name)
  * C8YOP_LOG_LEVEL - Logging level (debug, info, warn, error; defaults to warn)`,
+	Example: `  # Select a session with go-c8y-cli (as extension)
+  set-session --from-extension onepassword
+
+  # Select a session matching "production", with the secrets go-c8y-cli needs to log in
+  c8y-session-1password --reveal production
+
+  # Get the session of an item, or of one URL of an item with multiple URLs
+  c8y-session-1password --reveal --vault Employee --item "Production"
+  c8y-session-1password --reveal 'op://Employee/abc123?target_url=https%3A%2F%2Fprod.example.com'
+
+  # List the sessions of items with the tags c8y or prod, without secrets
+  c8y-session-1password --list --tags c8y,prod
+  c8y-session-1password --list --output uri
+
+  # Allow creating, updating and deleting data in sessions without mode field
+  c8y-session-1password --reveal --mode dev --vault Development`,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
@@ -348,18 +383,18 @@ func setupLogging(logLevel string) {
 }
 
 func init() {
-	rootCmd.PersistentFlags().String("vault", "", "Vault name or ID (optional - if not provided, use C8YOP_VAULT env var or use all vaults)")
-	rootCmd.PersistentFlags().String("item", "", "Specific item ID or name to retrieve (defaults to C8YOP_ITEM env var)")
-	rootCmd.PersistentFlags().String("uri", "", "Specific item with op://vault/item URI")
-	rootCmd.PersistentFlags().String("tags", "", "Comma-separated tags to filter by (defaults to C8YOP_TAGS env var, then 'c8y')")
-	rootCmd.PersistentFlags().StringP("output", "o", "json", "Output format (json, uri)")
-	rootCmd.PersistentFlags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
-	rootCmd.PersistentFlags().String("mode", "", "Session mode (prod, qual or dev) of the sessions whose item has no mode field")
+	rootCmd.PersistentFlags().String("vault", "", "Vault names or IDs to search in, comma-separated (defaults to C8YOP_VAULT env var, then all vaults)")
+	rootCmd.PersistentFlags().String("item", "", "Item name or ID to get the session of (defaults to C8YOP_ITEM env var)")
+	rootCmd.PersistentFlags().String("uri", "", "op://vault/item URI of the session, optionally with ?target_url=<url> for items with multiple URLs. Takes precedence over --vault and --item")
+	rootCmd.PersistentFlags().String("tags", "", "Tags of the items, comma-separated, items with any of the tags match (defaults to C8YOP_TAGS env var, then 'c8y')")
+	rootCmd.PersistentFlags().StringP("output", "o", "json", "Output format: json (go-c8y-cli session) or uri (op:// URI)")
+	rootCmd.PersistentFlags().Bool("reveal", false, "Output passwords, TOTP codes, and TOTP secrets instead of ***, as needed by go-c8y-cli to log in")
+	rootCmd.PersistentFlags().String("mode", "", "Session mode of the sessions whose item has no mode field: prod (read only), qual (also create and update) or dev (also delete)")
 	rootCmd.PersistentFlags().Bool("list", false, "List all matching sessions without passwords and TOTP secrets, instead of selecting one (JSON array, or one URI per line with --output uri)")
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable colored output in picker")
 	rootCmd.PersistentFlags().Bool("noColor", false, "Disable colored output in picker (go-c8y-cli compatibility)")
-	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose logging")
-	rootCmd.PersistentFlags().Bool("debug", false, "Debug logging")
+	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose logging (info messages on stderr)")
+	rootCmd.PersistentFlags().Bool("debug", false, "Debug logging (debug messages on stderr, e.g. the op commands)")
 
 	// Hidden flags which are only there to satisfy the go-c8y-cli session interface
 	rootCmd.PersistentFlags().String("loginType", "", "Not used (hidden)")
