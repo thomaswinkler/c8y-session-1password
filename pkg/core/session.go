@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -12,6 +13,7 @@ type CumulocitySession struct {
 	Username   string `json:"username,omitempty"`
 	Password   string `json:"password,omitempty"`
 	Tenant     string `json:"tenant,omitempty"`
+	Mode       string `json:"mode,omitempty"` // Session mode of go-c8y-cli: prod, qual or dev
 	TOTP       string `json:"totp,omitempty"`
 	TOTPSecret string `json:"totpSecret,omitempty"`
 
@@ -37,6 +39,7 @@ type ItemFields struct {
 	Password   string
 	TOTPSecret string
 	Tenant     string
+	Mode       string
 }
 
 // Item represents a simplified 1Password item for session creation
@@ -101,6 +104,11 @@ func (i CumulocitySession) Description() string {
 		args = append(args, i.Tenant)
 	}
 
+	if i.Mode != "" {
+		fields = append(fields, ", Mode=%s")
+		args = append(args, i.Mode)
+	}
+
 	if len(i.Tags) > 0 {
 		fields = append(fields, ", Tags=%s")
 		args = append(args, strings.Join(i.Tags, ","))
@@ -152,8 +160,32 @@ func BuildSessionName(item Item, urlSource URLSource, urlIndex int, totalURLs in
 	return fmt.Sprintf("%s (URL %d)", item.Title, urlIndex+1)
 }
 
+// SessionModes are the session modes of go-c8y-cli, which set the commands the session can run:
+// prod (read only), qual (also create and update) and dev (also delete)
+var SessionModes = []string{"prod", "qual", "dev"}
+
+// ParseMode returns the session mode in lower case, and false if it isn't a session mode
+func ParseMode(value string) (string, bool) {
+	mode := strings.ToLower(strings.TrimSpace(value))
+	for _, valid := range SessionModes {
+		if mode == valid {
+			return mode, true
+		}
+	}
+	return "", false
+}
+
 func BuildSessionURI(vault, item string) string {
 	return fmt.Sprintf("op://%s/%s", vault, item)
+}
+
+// BuildSessionTargetURI adds the target_url parameter to a session URI, which selects the session
+// of that URL (with --uri) if the item has multiple URLs. The 1Password CLI doesn't support the parameter
+func BuildSessionTargetURI(sessionURI, targetURL string) string {
+	if targetURL == "" {
+		return sessionURI
+	}
+	return sessionURI + "?target_url=" + url.QueryEscape(targetURL)
 }
 
 // CreateSession builds a CumulocitySession from extracted data
@@ -174,6 +206,7 @@ func CreateSession(item Item, fields ItemFields, vaultName string, urlSource URL
 		Username:   fields.Username,
 		Password:   fields.Password,
 		Tenant:     fields.Tenant,
+		Mode:       fields.Mode,
 		Host:       urlSource.URL,
 		VaultID:    item.Vault.ID,
 		VaultName:  vaultName,
@@ -202,6 +235,49 @@ func FilterMatchingTags(itemTags []string, requestedTags []string) []string {
 
 // MapToSessions creates one or more sessions from a 1Password item, handling multiple URLs
 // If requestedTags is provided, only matching tags will be included in the sessions
+// BaseURL returns the URL of the Cumulocity instance without path, query and fragment, e.g.
+// https://example.cumulocity.com for https://example.cumulocity.com/apps/cockpit/index.html#/,
+// as go-c8y-cli needs the base URL. A URL without scheme is returned without scheme. A value
+// which isn't a URL is returned unchanged
+func BaseURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return rawURL
+	}
+
+	if strings.Contains(rawURL, "://") {
+		u, err := url.Parse(rawURL)
+		if err != nil || u.Host == "" {
+			return rawURL
+		}
+		return u.Scheme + "://" + u.Host
+	}
+
+	u, err := url.Parse("https://" + rawURL)
+	if err != nil || u.Host == "" {
+		return rawURL
+	}
+	return u.Host
+}
+
+// baseURLs returns the URLs with their base URL (see BaseURL). URLs with the same base URL as a
+// previous URL are removed, e.g. links to different applications of the same instance, so
+// primary URLs (which are sorted first) are kept
+func baseURLs(allURLs []URLSource) []URLSource {
+	result := make([]URLSource, 0, len(allURLs))
+	seen := make(map[string]bool)
+	for _, urlSource := range allURLs {
+		urlSource.URL = BaseURL(urlSource.URL)
+		key := strings.ToLower(urlSource.URL)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, urlSource)
+	}
+	return result
+}
+
 func MapToSessions(item Item, fields ItemFields, allURLs []URLSource, vaultName string, requestedTags []string) []*CumulocitySession {
 	// Filter tags if requested
 	var filteredTags []string
@@ -210,6 +286,8 @@ func MapToSessions(item Item, fields ItemFields, allURLs []URLSource, vaultName 
 		filteredTags = FilterMatchingTags(item.Tags, requestedTags)
 		useFiltering = true
 	}
+
+	allURLs = baseURLs(allURLs)
 
 	// If no URLs found anywhere, create one session without URL
 	if len(allURLs) == 0 {
@@ -231,6 +309,10 @@ func MapToSessions(item Item, fields ItemFields, allURLs []URLSource, vaultName 
 	for i, urlSource := range allURLs {
 		sessionName := BuildSessionName(item, urlSource, i, len(allURLs), labelCounts)
 		sessionURI := BuildSessionURI(item.Vault.ID, item.ID)
+		if len(allURLs) > 1 {
+			// All sessions of the item have the same vault and item, so the URL identifies the session
+			sessionURI = BuildSessionTargetURI(sessionURI, urlSource.URL)
+		}
 		session := CreateSession(item, fields, vaultName, urlSource, sessionName, sessionURI, filteredTags, useFiltering)
 		sessions = append(sessions, session)
 	}

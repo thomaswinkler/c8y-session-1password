@@ -122,7 +122,7 @@ func TestActualMultiURL(t *testing.T) {
 	// Check that primary URL is first
 	primaryFound := false
 	for i, session := range sessions {
-		if session.Host == "https://primary.example.com/" {
+		if session.Host == "https://primary.example.com" {
 			if i != 0 {
 				t.Errorf("Primary URL should be first, but found at position %d", i)
 			}

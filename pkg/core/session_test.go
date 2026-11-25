@@ -78,3 +78,42 @@ func containsAt(s, substr string) bool {
 	}
 	return false
 }
+
+func TestBuildSessionTargetURI(t *testing.T) {
+	tests := []struct {
+		sessionURI string
+		targetURL  string
+		expected   string
+	}{
+		{"op://vault/item", "https://example.cumulocity.com", "op://vault/item?target_url=https%3A%2F%2Fexample.cumulocity.com"},
+		{"op://vault/item", "https://example.cumulocity.com/apps?x=1&y=2", "op://vault/item?target_url=https%3A%2F%2Fexample.cumulocity.com%2Fapps%3Fx%3D1%26y%3D2"},
+		{"op://vault/item", "", "op://vault/item"},
+	}
+
+	for _, test := range tests {
+		if got := BuildSessionTargetURI(test.sessionURI, test.targetURL); got != test.expected {
+			t.Errorf("BuildSessionTargetURI(%q, %q) = %q; expected %q", test.sessionURI, test.targetURL, got, test.expected)
+		}
+	}
+}
+
+func TestParseMode(t *testing.T) {
+	tests := []struct {
+		value string
+		mode  string
+		valid bool
+	}{
+		{value: "prod", mode: "prod", valid: true},
+		{value: "qual", mode: "qual", valid: true},
+		{value: " Dev ", mode: "dev", valid: true},
+		{value: "ci"},
+		{value: "production"},
+		{value: ""},
+	}
+	for _, tt := range tests {
+		mode, valid := ParseMode(tt.value)
+		if mode != tt.mode || valid != tt.valid {
+			t.Errorf("ParseMode(%q): expected %q, %v, got %q, %v", tt.value, tt.mode, tt.valid, mode, valid)
+		}
+	}
+}

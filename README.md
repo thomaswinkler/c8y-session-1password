@@ -5,17 +5,40 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/thomaswinkler/c8y-session-1password)](https://goreportcard.com/report/github.com/thomaswinkler/c8y-session-1password)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A session provider for [go-c8y-cli](https://github.com/reubenmiller/go-c8y-cli) that integrates with 1Password for storing and retrieving Cumulocity IoT session credentials.
+A session provider for [go-c8y-cli](https://github.com/reubenmiller/go-c8y-cli) that integrates with 1Password for storing and retrieving Cumulocity session credentials.
 
 ## Installation
 
-### As go-c8y-cli extension
+go-c8y-cli can get the credentials for a login from another program, a session provider. `c8y-session-1password` is such a program: it reads your sessions from 1Password, lets you select one, and passes it to go-c8y-cli.
 
-With go-c8y-cli 2.57.0 or later, install `c8y-session-1password` as an extension. It provides the session provider `onepassword`:
+You can install it in two ways:
+
+- **As go-c8y-cli extension:** go-c8y-cli installs and updates it for you. You select a session with `set-session --from-extension onepassword`. Requires go-c8y-cli 2.57.0 or later.
+- **As standalone binary:** you install and update the binary yourself, and configure go-c8y-cli to run it. Use it with older go-c8y-cli versions, or to run `c8y-session-1password` on its own, e.g. in scripts.
+
+Both select sessions the same way. In both cases, the [1Password CLI](#1password-setup) must be installed.
+
+### As go-c8y-cli extension (recommended)
 
 ```bash
 c8y extensions install thomaswinkler/c8y-session-1password
+```
 
+Update it with `c8y extensions update session-1password`.
+
+### Standalone binary
+
+```bash
+go install github.com/thomaswinkler/c8y-session-1password@latest
+```
+
+Or download an archive for your platform from [GitHub Releases](https://github.com/thomaswinkler/c8y-session-1password/releases). The binary is in the `bin` folder of the archive. Copy it to a folder in your `PATH`.
+
+## Usage with go-c8y-cli
+
+### With the extension
+
+```bash
 # Select a session from 1Password
 set-session --from-extension onepassword
 
@@ -28,110 +51,70 @@ c8y settings update session.provider.extension onepassword
 set-session
 ```
 
-The provider uses your environment, for example `C8YOP_VAULT` and `C8YOP_TAGS`. Update the extension with `c8y extensions update session-1password`.
+`set-session` is part of the go-c8y-cli shell integration (`c8y cli install`). The provider uses your environment, for example `C8YOP_VAULT` and `C8YOP_TAGS`.
 
-### Using Go Install
+### Without the extension
+
+Use the standalone binary as external session provider, e.g. with go-c8y-cli versions before 2.57.0:
 
 ```bash
-go install github.com/thomaswinkler/c8y-session-1password@latest
+# Use the provider by default for set-session
+c8y settings update session.provider.type external
+c8y settings update session.provider.command "c8y-session-1password --reveal"
+set-session
+
+# Or log in once
+eval "$(c8y sessions login --from-cmd "c8y-session-1password --reveal" --shell auto)"
 ```
 
-Or download from [GitHub Releases](https://github.com/thomaswinkler/c8y-session-1password/releases).
-
-## Integration with go-c8y-cli
-
-Setup aliases in your shell profile to use `c8y-session-1password` with `go-c8y-cli`:
-
-<details open>
-<summary><strong>bash / zsh</strong></summary>
-
-**Interactive session picker (searches all vaults):**
-```bash
-eval $(c8y sessions login --from-cmd "c8y-session-1password --reveal" --shell auto)
-```
-
-**Direct session access (searches all vaults for item):**
-```bash
-eval $(c8y sessions login --from-cmd "c8y-session-1password --item Production --reveal" --shell auto)
-```
-
-**Direct session access from specific vault:**
-```bash
-eval $(c8y sessions login --from-cmd "c8y-session-1password --vault Employee --item Production --reveal" --shell auto)
-```
-
-**Using environment variables:**
-```bash
-export C8YOP_VAULT="Employee"
-export C8YOP_ITEM="Production"
-eval $(c8y sessions login --from-cmd "c8y-session-1password --reveal" --shell auto)
-```
-
-**Searching multiple vaults:**
-```bash
-export C8YOP_VAULT="Employee,Shared"
-eval $(c8y sessions login --from-cmd "c8y-session-1password --reveal" --shell auto)
-```
-
-**Add to your shell profile:**
-```bash
-# Add to ~/.bashrc or ~/.zshrc
-set-session-op() {
-  eval $(c8y sessions login --from-cmd "c8y-session-1password --reveal $*" --shell auto)
-} 
-
-# Advanced: Get URI for a session (useful for direct 1Password CLI commands)
-get-session-uri() {
-  c8y-session-1password --output uri $*
-}
-
-# Remove op alias created by go-c8y-cli to avoid conflicts with 1Password CLI
-unalias op
-```
-
-Then you can use both functions:
-```bash
-set-session-op xyz           # Set session in go-c8y-cli
-get-session-uri xyz          # Get op:// URI for the session
-
-# Use URI with 1Password CLI directly
-op item get $(get-session-uri Production) --fields label=password
-```
-
-</details>
-
-<details>
-<summary><strong>PowerShell</strong></summary>
-
-**Interactive session picker (searches all vaults):**
 ```powershell
 $(c8y sessions login --from-cmd "c8y-session-1password --reveal" --shell auto) | Invoke-Expression
 ```
 
-**Direct session access (searches all vaults for item):**
-```powershell
-$(c8y sessions login --from-cmd "c8y-session-1password --item Production --reveal" --shell auto) | Invoke-Expression
+`--reveal` is required, as go-c8y-cli needs the password (and TOTP code) to log in.
+
+### Selecting a session
+
+Without arguments, an interactive picker shows all sessions. A filter argument selects the sessions to show:
+
+```bash
+set-session --from-extension onepassword -- production
+c8y-session-1password --reveal production
 ```
 
-**Direct session access from specific vault:**
-```powershell
-$(c8y sessions login --from-cmd "c8y-session-1password --vault Employee --item Production --reveal" --shell auto) | Invoke-Expression
+The filter matches the session name, item name, URL, and username (case-insensitive, also parts), and the item ID (exact match). If exactly one session matches, it's selected without the picker.
+
+To select an item directly, use `--item` with the item name or ID, or `--uri` with an `op://` URI (see [URI output](#uri-output)). A URI can also be given instead of the filter, e.g. `c8y-session-1password --reveal 'op://vault123/abc123'`. `--vault` limits the search to one or more vaults.
+
+### Use with the c8y MCP server
+
+With go-c8y-cli 2.58.0 or later, the session picker of `c8y mcp serve` shows the sessions from 1Password, grouped by vault. When the token expires, the server gets the session from 1Password again, including a new TOTP code.
+
+If `onepassword` is your default provider (see [With the extension](#with-the-extension)), the picker shows your session files and the sessions from 1Password, e.g. for Claude Code:
+
+```bash
+claude mcp add --scope user c8y -- c8y mcp serve
 ```
 
-**Using environment variables:**
-```powershell
-$env:C8YOP_VAULT="Employee"
-$env:C8YOP_ITEM="Production"
-$(c8y sessions login --from-cmd "c8y-session-1password" --reveal --shell auto) | Invoke-Expression
+Use `--sessionProvider` to choose the sources and their order. `file` stands for your session files, and arguments after the provider name select the sessions from 1Password:
+
+```bash
+# only sessions from 1Password
+claude mcp add --scope user c8y -- c8y mcp serve --sessionProvider onepassword
+
+# sessions from the Employee vault, then the session files
+claude mcp add --scope user c8y -- c8y mcp serve --sessionProvider "onepassword --vault Employee,file"
 ```
 
-**Searching multiple vaults:**
-```powershell
-$env:C8YOP_VAULT="Employee,Shared"
-$(c8y sessions login --from-cmd "c8y-session-1password --reveal" --shell auto) | Invoke-Expression
+Check which sessions the picker shows with `c8y sessions list --from-extension onepassword`.
+
+By default, the agent can only read data (session mode `prod`). To allow it to create and update (`qual`), or also delete data (`dev`), set the mode of the session with a `mode` field in the 1Password item (see [Optional Fields](#optional-fields)), or with `--mode` for all sessions without the field:
+
+```bash
+claude mcp add --scope user c8y-dev -- c8y mcp serve --sessionProvider "onepassword --mode dev --vault Development"
 ```
 
-</details>
+`c8y mcp serve --mode` limits the mode of all sessions, e.g. `--mode qual` doesn't allow deleting data in a `dev` session.
 
 ## Output Formats
 
@@ -147,7 +130,7 @@ c8y-session-1password --output uri
 
 **Available output formats:**
 - `json` (default) - Full session JSON for go-c8y-cli integration
-- `uri` - Only the `op://vault/item` URI for direct 1Password CLI usage
+- `uri` - The `op://vault/item` URI with the session URL as `target_url` parameter
 
 ### Output Format Examples
 
@@ -157,27 +140,34 @@ The default output format is JSON, which includes all session details as require
 
 ```json
 {
+  "sessionUri": "op://vault123/abc123",
+  "name": "Production",
   "host": "https://myinstance.cumulocity.com",
   "username": "myuser",
   "password": "***",
   "tenant": "t123456",
   "itemId": "abc123",
-  "vaultName": "Employee"
+  "itemName": "Production",
+  "vaultId": "vault123",
+  "vaultName": "Employee",
+  "tags": [
+    "c8y"
+  ]
 }
 ```
 
 #### URI output
 
 ```
-op://Employee/abc123?target_url=https%3A%2F%2Fmyinstance.cumulocity.com
+op://vault123/abc123?target_url=https%3A%2F%2Fmyinstance.cumulocity.com
 ```
 
 Use for example to store the selected session URI in an environment variable for further use in scripts or commands. The `target_url` parameter is optional and holds the selected url to use for the session. This is required for 1Password items with multiple URLs.
 
-Please note that `target_url` is NOT supported by 1Password CLI `op` command, but can be used in scripts or other tools that support this format. `c8y-session-1password --uri` accepts it to select the session of that URL:
+Please note that `target_url` is NOT supported by 1Password CLI `op` command, but can be used in scripts or other tools that support this format. `c8y-session-1password --uri` accepts it to select the session of that URL. Quote the URI in the shell, as `?` is a wildcard in zsh:
 
 ```bash
-c8y-session-1password --reveal --uri "op://Employee/abc123?target_url=https%3A%2F%2Fmyinstance.cumulocity.com"
+c8y-session-1password --reveal --uri 'op://vault123/abc123?target_url=https%3A%2F%2Fmyinstance.cumulocity.com'
 ```
 
 <details open>
@@ -187,6 +177,9 @@ c8y-session-1password --reveal --uri "op://Employee/abc123?target_url=https%3A%2
 # Store URI in environment variable
 export C8Y_SESSION=$(c8y-session-1password --output uri)
 echo "Selected session: $C8Y_SESSION"
+
+# Use the URI with the 1Password CLI. Remove the target_url parameter, which op doesn't support
+op item get "${C8Y_SESSION%%\?*}" --fields label=password
 ```
 </details>
 
@@ -224,7 +217,7 @@ c8y-session-1password --list --output uri production
 > 4. Restart the 1Password app if prompted
 
 > [!NOTE]
-> If you can not run `op` command, make sure the 1Password CLI is installed and available in your PATH. You can download it from [1Password CLI](https://developer.1password.com/docs/cli/get-started/). You might also need to run `unalias op` to remove any existing aliases that might conflict with the 1Password CLI command.
+> If you cannot run the `op` command, make sure the 1Password CLI is installed and available in your PATH. You can download it from [1Password CLI](https://developer.1password.com/docs/cli/get-started/). You might also need to run `unalias op` to remove any existing aliases that might conflict with the 1Password CLI command.
 
 ### Authentication
 
@@ -294,12 +287,14 @@ Create 1Password **Login** items with these exact field configurations:
 
 ### Required Fields
 
-The following fields are required for the `c8y-session-1password` to function correctly:
+Items need the following for `c8y-session-1password` to find them and create sessions:
 
-- `title`: Item and session name (used for display and filtering)
+- **Category**: `Login`
+- **Title**: Item and session name (used for display and filtering)
+- **Tags**: Must include the `c8y` tag (case-insensitive, required for discovery)
 - `username`: Cumulocity username
 - `password`: Cumulocity password
-- `tags`: Must include `c8y` tag (case-insensitive, required for discovery)
+- At least one URL (see below)
 
 You can choose any tags. Make sure to pass using `--tags` flag or set `C8YOP_TAGS` environment variable to configure the tags to be used for search.
 
@@ -307,7 +302,9 @@ You can choose any tags. Make sure to pass using `--tags` flag or set `C8YOP_TAG
 
 There is flexibility in how you configure URLs for Cumulocity instances. If there is more than one URL found in an item, a separate session will be created and shown for each URL.
 
-URLs should be absolute URLs pointing to the Cumulocity instance, e.g. `https://myinstance.cumulocity.com`. The url will be used to identify the session in the picker. The label of the field, also if customized, is not used for the session or it's presentation in the picker.
+The `sessionUri` of these sessions includes the URL as `target_url` parameter, e.g. `op://Employee/abc123?target_url=https%3A%2F%2Fmyinstance.cumulocity.com`, so it identifies the session and can be used with `--uri`. Sessions of items with one URL use `op://vault/item`, which the 1Password CLI also supports.
+
+URLs should be absolute URLs pointing to the Cumulocity instance, e.g. `https://myinstance.cumulocity.com`. The url will be used to identify the session in the picker. A path, query, or fragment is removed, so a URL copied from the browser, e.g. `https://myinstance.cumulocity.com/apps/cockpit/index.html#/`, also works. URLs of the same instance in one item result in one session. The label of the field, also if customized, is not used for the session or its presentation in the picker.
 
 The following fields will be searched for URLs:
 
@@ -321,7 +318,9 @@ The following fields will be searched for URLs:
 
 ### Optional Fields
 
-Currently, only `tenant` field is supported as an optional field. If configured in the 1Password item, it's value will be passed as tenant id to `go-c8y-cli`. As `go-c8y-cli` determines the tenant id automatically, this is only needed if you really want to override the tenant id.
+- `tenant`: If configured in the 1Password item, its value will be passed as tenant id to `go-c8y-cli`. As `go-c8y-cli` determines the tenant id automatically, this is only needed if you really want to override the tenant id.
+- `mode`: The session mode of `go-c8y-cli`, `prod` (read only), `qual` (also create and update) or `dev` (also delete). It applies to all URLs of the item, and takes precedence over `--mode`. Invalid values are ignored with a warning.
+- One-time password: For tenants with two-factor authentication (TOTP), add a one-time password field to the item. With `--reveal`, the output includes the current code (`totp`) and the secret (`totpSecret`), and `go-c8y-cli` uses the code to log in.
 
 ### Summary and Troubleshooting
 
@@ -336,7 +335,7 @@ Make sure item names and tags are short and descriptive to make it easy to find 
 
 **Common Issues:**
 - ❌ Item not appearing: Check category is "Login" and has `c8y` tag as well as at least one URL
-- ❌ Multiple sessions not created: Check URLs section or multiple URL custom fields
+- ❌ Multiple sessions not created: Check URLs section or multiple URL custom fields. URLs of the same instance result in one session
 - ❌ Make sure the item is in the vaults you are searching and you have access to the vault
 - ❌ If using `--item`, ensure the item name matches exactly (case-sensitive)
 
@@ -348,6 +347,8 @@ By default, all sensitive information (passwords, TOTP secrets) is obfuscated in
 
 - Passwords, TOTP codes, and TOTP secrets show as `***` by default
 - Use `--reveal` flag to show actual values when needed
+- `--list` never outputs passwords, TOTP codes, or TOTP secrets, also not with `--reveal`
+- Sessions are read only for AI agents using `c8y mcp serve`, unless their mode is `qual` or `dev`. Only use `dev` for development tenants, e.g. with a `mode` field in their items or `--mode dev` together with `--vault` for a development vault
 
 This approach prioritizes security by requiring explicit use of `--reveal` when you need to see sensitive credentials.
 
@@ -359,6 +360,8 @@ The following environment variables can be set to customize the behavior of `c8y
 - `C8YOP_TAGS` - Filter tags (defaults to `"c8y"`)
 - `C8YOP_ITEM` - Default item name or ID
 - `C8YOP_LOG_LEVEL` - Logging level (`debug`, `info`, `warn`, `error`; defaults to `warn`)
+
+Flags take precedence over the environment variables. `--uri` takes precedence over `--vault`, `--item`, `C8YOP_VAULT`, and `C8YOP_ITEM`, as the URI identifies exactly one session.
 
 For automated environments or when working with specific projects, set these in your shell profile:
 
@@ -408,6 +411,12 @@ $env:C8YOP_TAGS="c8y"
 Enable debug logging to troubleshoot 1Password integration issues:
 
 ```bash
+# Flags: --debug (debug level) or -v/--verbose (info level)
+c8y-session-1password --debug
+
+# go-c8y-cli passes -v and --debug on to the session provider
+set-session --from-extension onepassword --debug
+
 # Enable debug logging
 export C8YOP_LOG_LEVEL=debug
 c8y-session-1password
@@ -432,14 +441,20 @@ Debug logging is particularly useful for:
 - Understanding which vaults and items are being searched
 - Performance analysis of bulk vs individual item fetching
 
+## Chrome Extension
+
+`c8y-session-1password` can also be used as native messaging host of a Chrome extension. See [Chrome Native Messaging](docs/chrome-native-messaging.md).
+
 ## Development
 
 **Prerequisites:** Go 1.21+, golangci-lint, 1Password CLI
 
 ```bash
-make build    # Build binary
-make test     # Run tests  
-make lint     # Run linting
+make build                # Build binary into bin/
+make test                 # Run tests
+make lint                 # Run linting
+make package              # Build the release archives into dist/
+make validate-extension   # Validate the go-c8y-cli extension (needs c8y 2.57.0 or later)
 ```
 
 ## License

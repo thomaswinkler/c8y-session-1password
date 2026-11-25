@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -39,19 +38,38 @@ var rootCmd = &cobra.Command{
 	Short: "go-c8y-cli 1Password session selector",
 	Long: `Smart go-c8y-cli session picker from 1Password vaults
 
-This command provides smart filtering and selection of sessions:
-- Shows interactive picker for multiple sessions matching the filter
-- Automatically returns the session when filter matches exactly one item
-- Filter matches against session names, item names, URLs, and usernames
-- Support multiple urls per 1Password item showing one session per URL
-
-By default, sensitive information (passwords, TOTP secrets) is obfuscated in the output.
-Use --reveal to show the actual values.
+Selecting a session:
+- Shows an interactive picker if multiple sessions match the filter
+- Selects the session without picker if exactly one session matches
+- The filter matches session names, item names, URLs, and usernames (case-insensitive, also
+  parts), or the exact item ID
+- Items with multiple URLs show one session per URL
+- Use --tags to select items by tags (comma-separated, default: c8y), and --vault to only
+  search in some vaults (comma-separated names or IDs)
 
 Direct item access:
-- Use --item flag for direct item retrieval by ID or name
-- Use --uri flag for direct item retrieval using op://vault/item format
-- Use --vault flag to limit searches to specific vault(s)
+- Use --item to get an item by name or ID
+- Use --uri to get the session of an op://vault/item URI. For items with multiple URLs, add
+  ?target_url=<url> to select the URL (see --output uri). The URI can also be given instead
+  of the filter
+
+Output:
+- JSON in the session format of go-c8y-cli (default), or the op:// URI with --output uri
+- Passwords, TOTP codes, and TOTP secrets are obfuscated (***). Use --reveal to output them,
+  as go-c8y-cli needs them to log in
+- Use --list to output all matching sessions instead of selecting one, without passwords
+  and TOTP secrets (also with --reveal), e.g. for the session picker of "c8y mcp serve"
+  (go-c8y-cli 2.58.0 or later)
+
+Session mode:
+- A "mode" field in the 1Password item sets the go-c8y-cli session mode: prod (read only),
+  qual (also create and update) or dev (also delete)
+- Use --mode to set the mode of the sessions whose item has no mode field
+
+Logging:
+- Use -v/--verbose for info and --debug for debug messages (on stderr). They take precedence
+  over C8YOP_LOG_LEVEL
+- Use --no-color (or --noColor) to disable colors in the picker
 
 Native messaging mode:
 - Activated when started by a Chrome extension (caller origin chrome-extension://<id>/ as first argument)
@@ -71,10 +89,26 @@ Authentication options:
 
 Environment Variables:
 
- * C8YOP_VAULT - Default vault to search in (can be vault name or ID)
+ * C8YOP_VAULT - Default vaults to search in (comma-separated names or IDs)
  * C8YOP_TAGS - Default tags to filter by (comma-separated, defaults to "c8y" if not set)
  * C8YOP_ITEM - Default item to retrieve (item ID or name)
  * C8YOP_LOG_LEVEL - Logging level (debug, info, warn, error; defaults to warn)`,
+	Example: `  # Select a session with go-c8y-cli (as extension)
+  set-session --from-extension onepassword
+
+  # Select a session matching "production", with the secrets go-c8y-cli needs to log in
+  c8y-session-1password --reveal production
+
+  # Get the session of an item, or of one URL of an item with multiple URLs
+  c8y-session-1password --reveal --vault Employee --item "Production"
+  c8y-session-1password --reveal 'op://Employee/abc123?target_url=https%3A%2F%2Fprod.example.com'
+
+  # List the sessions of items with the tags c8y or prod, without secrets
+  c8y-session-1password --list --tags c8y,prod
+  c8y-session-1password --list --output uri
+
+  # Allow creating, updating and deleting data in sessions without mode field
+  c8y-session-1password --reveal --mode dev --vault Development`,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
@@ -137,18 +171,32 @@ Environment Variables:
 		if list && reveal {
 			return fmt.Errorf("--list can't be used with --reveal, as it never outputs secrets")
 		}
-		if list && (cmd.Flags().Changed("item") || cmd.Flags().Changed("uri")) {
+		modeFlag, err := cmd.Flags().GetString("mode")
+		if err != nil {
+			return err
+		}
+		defaultMode := ""
+		if modeFlag != "" {
+			mode, ok := core.ParseMode(modeFlag)
+			if !ok {
+				return fmt.Errorf("invalid mode: %s (supported: %s)", modeFlag, strings.Join(core.SessionModes, ", "))
+			}
+			defaultMode = mode
+		}
+
+		filter, uriArg, err := parseFilterArg(args, cmd.Flags().Changed("uri"))
+		if err != nil {
+			return err
+		}
+		if uriArg != "" {
+			opURI = uriArg
+		}
+		if list && (cmd.Flags().Changed("item") || cmd.Flags().Changed("uri") || uriArg != "") {
 			return fmt.Errorf("--list can't be used with --item or --uri")
 		}
 
 		// Combine no-color flags (either --no-color or --noColor disables colors)
 		noColorFinal := noColor || noColorCompat
-
-		// Get filter argument if provided
-		var filter string
-		if len(args) > 0 {
-			filter = args[0]
-		}
 
 		vault, item, targetURL, err := resolveItem(vault, item, opURI)
 		if err != nil {
@@ -166,6 +214,7 @@ Environment Variables:
 			if err != nil {
 				return err
 			}
+			applyDefaultMode([]*core.CumulocitySession{session}, defaultMode)
 
 			// Get TOTP if available
 			populateTOTP(session)
@@ -179,6 +228,7 @@ Environment Variables:
 		if err != nil {
 			return err
 		}
+		applyDefaultMode(sessions, defaultMode)
 
 		// Apply filter if provided
 		filteredSessions := sessions
@@ -222,6 +272,34 @@ Environment Variables:
 			return outputSession(session, reveal, outputFormat)
 		}
 	},
+}
+
+// applyDefaultMode sets the mode of the sessions which have no mode field in their item
+func applyDefaultMode(sessions []*core.CumulocitySession, mode string) {
+	if mode == "" {
+		return
+	}
+	for _, session := range sessions {
+		if session.Mode == "" {
+			session.Mode = mode
+		}
+	}
+}
+
+// parseFilterArg returns the filter argument, or the URI if the argument is an op:// URI. go-c8y-cli
+// passes the sessionUri as the last argument to the select command of the session provider, after
+// its login flags, so it can't follow --uri
+func parseFilterArg(args []string, uriFlagSet bool) (string, string, error) {
+	if len(args) == 0 {
+		return "", "", nil
+	}
+	if !strings.HasPrefix(args[0], "op://") {
+		return args[0], "", nil
+	}
+	if uriFlagSet {
+		return "", "", fmt.Errorf("a URI argument can't be used with --uri")
+	}
+	return "", args[0], nil
 }
 
 // resolveItem returns the vault, item and target URL to use. An op:// URI takes precedence over
@@ -305,17 +383,18 @@ func setupLogging(logLevel string) {
 }
 
 func init() {
-	rootCmd.PersistentFlags().String("vault", "", "Vault name or ID (optional - if not provided, use C8YOP_VAULT env var or use all vaults)")
-	rootCmd.PersistentFlags().String("item", "", "Specific item ID or name to retrieve (defaults to C8YOP_ITEM env var)")
-	rootCmd.PersistentFlags().String("uri", "", "Specific item with op://vault/item URI")
-	rootCmd.PersistentFlags().String("tags", "", "Comma-separated tags to filter by (defaults to C8YOP_TAGS env var, then 'c8y')")
-	rootCmd.PersistentFlags().StringP("output", "o", "json", "Output format (json, uri)")
-	rootCmd.PersistentFlags().Bool("reveal", false, "Show sensitive information like passwords and TOTP secrets in output")
+	rootCmd.PersistentFlags().String("vault", "", "Vault names or IDs to search in, comma-separated (defaults to C8YOP_VAULT env var, then all vaults)")
+	rootCmd.PersistentFlags().String("item", "", "Item name or ID to get the session of (defaults to C8YOP_ITEM env var)")
+	rootCmd.PersistentFlags().String("uri", "", "op://vault/item URI of the session, optionally with ?target_url=<url> for items with multiple URLs. Takes precedence over --vault and --item")
+	rootCmd.PersistentFlags().String("tags", "", "Tags of the items, comma-separated, items with any of the tags match (defaults to C8YOP_TAGS env var, then 'c8y')")
+	rootCmd.PersistentFlags().StringP("output", "o", "json", "Output format: json (go-c8y-cli session) or uri (op:// URI)")
+	rootCmd.PersistentFlags().Bool("reveal", false, "Output passwords, TOTP codes, and TOTP secrets instead of ***, as needed by go-c8y-cli to log in")
+	rootCmd.PersistentFlags().String("mode", "", "Session mode of the sessions whose item has no mode field: prod (read only), qual (also create and update) or dev (also delete)")
 	rootCmd.PersistentFlags().Bool("list", false, "List all matching sessions without passwords and TOTP secrets, instead of selecting one (JSON array, or one URI per line with --output uri)")
 	rootCmd.PersistentFlags().Bool("no-color", false, "Disable colored output in picker")
 	rootCmd.PersistentFlags().Bool("noColor", false, "Disable colored output in picker (go-c8y-cli compatibility)")
-	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose logging")
-	rootCmd.PersistentFlags().Bool("debug", false, "Debug logging")
+	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose logging (info messages on stderr)")
+	rootCmd.PersistentFlags().Bool("debug", false, "Debug logging (debug messages on stderr, e.g. the op commands)")
 
 	// Hidden flags which are only there to satisfy the go-c8y-cli session interface
 	rootCmd.PersistentFlags().String("loginType", "", "Not used (hidden)")
@@ -485,20 +564,24 @@ func outputSession(session *core.CumulocitySession, reveal bool, outputFormat st
 func outputSessionList(sessions []*core.CumulocitySession, outputFormat string) error {
 	switch outputFormat {
 	case "json":
-		listed := make([]core.CumulocitySession, 0, len(sessions))
+		// group is shown by the session picker of go-c8y-cli (c8y mcp serve)
+		type listedSession struct {
+			core.CumulocitySession
+			Group string `json:"group,omitempty"`
+		}
+		listed := make([]listedSession, 0, len(sessions))
 		for _, session := range sessions {
-			listedSession := *session
-			listedSession.Password = ""
-			listedSession.TOTP = ""
-			listedSession.TOTPSecret = ""
-			listed = append(listed, listedSession)
+			s := listedSession{CumulocitySession: sessionWithoutSecrets(session), Group: session.VaultName}
+			if s.Group == "" {
+				s.Group = session.VaultID
+			}
+			listed = append(listed, s)
 		}
 		out, err := json.MarshalIndent(listed, "", "  ")
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%s\n", out)
-		return nil
+		return writeOutput(out)
 	case "uri":
 		for _, session := range sessions {
 			if err := outputSessionAsURI(session); err != nil {
@@ -533,7 +616,34 @@ func outputSessionAsJSON(session *core.CumulocitySession, reveal bool) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s\n", out)
+	// Credentials are only included when the user explicitly asked for them with --reveal.
+	// They are written to stdout as the command's result, never to the log.
+	return writeOutput(out)
+}
+
+// sessionWithoutSecrets returns a copy of the session that only contains the fields which are
+// safe to list. Fields are copied explicitly, so a new secret field is never listed by accident
+func sessionWithoutSecrets(session *core.CumulocitySession) core.CumulocitySession {
+	return core.CumulocitySession{
+		SessionURI: session.SessionURI,
+		Name:       session.Name,
+		Host:       session.Host,
+		Username:   session.Username,
+		Tenant:     session.Tenant,
+		Mode:       session.Mode,
+		ItemID:     session.ItemID,
+		ItemName:   session.ItemName,
+		VaultID:    session.VaultID,
+		VaultName:  session.VaultName,
+		Tags:       session.Tags,
+	}
+}
+
+// writeOutput writes the command's result to stdout, followed by a newline
+func writeOutput(out []byte) error {
+	if _, err := os.Stdout.Write(append(out, '\n')); err != nil {
+		return fmt.Errorf("failed to write output: %w", err)
+	}
 	return nil
 }
 
@@ -543,13 +653,8 @@ func outputSessionAsURI(session *core.CumulocitySession) error {
 		return fmt.Errorf("missing vault name or item ID for URI output")
 	}
 
-	uri := fmt.Sprintf("op://%s/%s", session.VaultID, session.ItemID)
-
 	// Add target_url parameter if session has a host URL
-	if session.Host != "" {
-		encodedURL := url.QueryEscape(session.Host)
-		uri += fmt.Sprintf("?target_url=%s", encodedURL)
-	}
+	uri := core.BuildSessionTargetURI(core.BuildSessionURI(session.VaultID, session.ItemID), session.Host)
 
 	fmt.Printf("%s\n", uri)
 	return nil
@@ -708,7 +813,7 @@ func processNativeMessagingRequest(req NativeMessagingRequest) error {
 		session := filteredSessions[0]
 		// Populate session details and TOTP from the full session list
 		populateSessionFromList(session, sessions)
-		return outputSessionNativeMessaging(session, req.Reveal, true) // Use reveal flag from request
+		return outputSessionNativeMessaging(session, req.Reveal) // Use reveal flag from request
 	} else {
 		// Multiple sessions found, return as JSON array
 		var outputSessions []*core.CumulocitySession
@@ -717,7 +822,7 @@ func processNativeMessagingRequest(req NativeMessagingRequest) error {
 			populateSessionFromList(session, sessions)
 			outputSessions = append(outputSessions, session)
 		}
-		return outputSessionsNativeMessaging(outputSessions, req.Reveal, true) // Use reveal flag from request
+		return outputSessionsNativeMessaging(outputSessions, req.Reveal) // Use reveal flag from request
 	}
 }
 
@@ -751,30 +856,23 @@ func applyRevealFlag(session *core.CumulocitySession, reveal bool) *core.Cumuloc
 	return &outputSession
 }
 
-// Helper function to output JSON data for native messaging
-func outputJSONNativeMessaging(data interface{}, isNativeMessagingFormat bool) error {
+// Helper function to send JSON data as a native message to the browser extension
+func outputJSONNativeMessaging(data interface{}) error {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal data to JSON: %w", err)
 	}
-
-	if isNativeMessagingFormat {
-		return writeNativeMessage(jsonData)
-	} else {
-		// Plain JSON output
-		fmt.Printf("%s\n", jsonData)
-		return nil
-	}
+	return writeNativeMessage(jsonData)
 }
 
 // Helper function to output single session for native messaging
-func outputSessionNativeMessaging(session *core.CumulocitySession, reveal bool, isNativeMessagingFormat bool) error {
+func outputSessionNativeMessaging(session *core.CumulocitySession, reveal bool) error {
 	outputSession := applyRevealFlag(session, reveal)
-	return outputJSONNativeMessaging(outputSession, isNativeMessagingFormat)
+	return outputJSONNativeMessaging(outputSession)
 }
 
 // Helper function to output multiple sessions for native messaging
-func outputSessionsNativeMessaging(sessions []*core.CumulocitySession, reveal bool, isNativeMessagingFormat bool) error {
+func outputSessionsNativeMessaging(sessions []*core.CumulocitySession, reveal bool) error {
 	// Apply reveal flag to all sessions using the helper function
 	var outputSessions []*core.CumulocitySession
 	for _, session := range sessions {
@@ -782,7 +880,7 @@ func outputSessionsNativeMessaging(sessions []*core.CumulocitySession, reveal bo
 		outputSessions = append(outputSessions, outputSession)
 	}
 
-	return outputJSONNativeMessaging(outputSessions, isNativeMessagingFormat)
+	return outputJSONNativeMessaging(outputSessions)
 }
 
 // Helper function to write native messaging format
