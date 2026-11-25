@@ -87,6 +87,7 @@ type itemFields struct {
 	password   string
 	totpSecret string
 	tenant     string
+	mode       string
 }
 
 // parseVaultNamesFromString splits a comma-separated vault string and returns a slice of vault names
@@ -220,6 +221,15 @@ func (opi *OPItem) extractFields() itemFields {
 		if strings.HasPrefix(strings.ToLower(field.Label), "tenant") && fields.tenant == "" {
 			fields.tenant = field.Value
 		}
+
+		// Extract the session mode of go-c8y-cli from custom field
+		if strings.EqualFold(strings.TrimSpace(field.Label), "mode") && fields.mode == "" && strings.TrimSpace(field.Value) != "" {
+			if mode, ok := core.ParseMode(field.Value); ok {
+				fields.mode = mode
+			} else {
+				slog.Warn("Ignoring invalid mode of item", "item_id", opi.ID, "mode", field.Value, "valid", strings.Join(core.SessionModes, ", "))
+			}
+		}
 	}
 
 	// Handle tenant/username combination (format: tenant/username)
@@ -306,6 +316,7 @@ func (c *Client) mapToSessions(item *OPItem, vaults map[string]string) []*core.C
 		Password:   fields.password,
 		TOTPSecret: fields.totpSecret,
 		Tenant:     fields.tenant,
+		Mode:       fields.mode,
 	}
 
 	// Collect URLs
