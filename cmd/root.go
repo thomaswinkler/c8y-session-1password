@@ -49,7 +49,7 @@ Use --reveal to show the actual values.
 
 Direct item access:
 - Use --item flag for direct item retrieval by ID or name
-- Use --uri flag for direct item retrieval using op://vault/item format
+- Use --uri flag (or an op:// URI as argument) for direct item retrieval using op://vault/item format
 - Use --vault flag to limit searches to specific vault(s)
 
 Native messaging mode:
@@ -136,18 +136,19 @@ Environment Variables:
 		if list && reveal {
 			return fmt.Errorf("--list can't be used with --reveal, as it never outputs secrets")
 		}
-		if list && (cmd.Flags().Changed("item") || cmd.Flags().Changed("uri")) {
+		filter, uriArg, err := parseFilterArg(args, cmd.Flags().Changed("uri"))
+		if err != nil {
+			return err
+		}
+		if uriArg != "" {
+			opURI = uriArg
+		}
+		if list && (cmd.Flags().Changed("item") || cmd.Flags().Changed("uri") || uriArg != "") {
 			return fmt.Errorf("--list can't be used with --item or --uri")
 		}
 
 		// Combine no-color flags (either --no-color or --noColor disables colors)
 		noColorFinal := noColor || noColorCompat
-
-		// Get filter argument if provided
-		var filter string
-		if len(args) > 0 {
-			filter = args[0]
-		}
 
 		vault, item, targetURL, err := resolveItem(vault, item, opURI)
 		if err != nil {
@@ -221,6 +222,22 @@ Environment Variables:
 			return outputSession(session, reveal, outputFormat)
 		}
 	},
+}
+
+// parseFilterArg returns the filter argument, or the URI if the argument is an op:// URI. go-c8y-cli
+// passes the sessionUri as the last argument to the select command of the session provider, after
+// its login flags, so it can't follow --uri
+func parseFilterArg(args []string, uriFlagSet bool) (string, string, error) {
+	if len(args) == 0 {
+		return "", "", nil
+	}
+	if !strings.HasPrefix(args[0], "op://") {
+		return args[0], "", nil
+	}
+	if uriFlagSet {
+		return "", "", fmt.Errorf("a URI argument can't be used with --uri")
+	}
+	return "", args[0], nil
 }
 
 // resolveItem returns the vault, item and target URL to use. An op:// URI takes precedence over
@@ -484,9 +501,18 @@ func outputSession(session *core.CumulocitySession, reveal bool, outputFormat st
 func outputSessionList(sessions []*core.CumulocitySession, outputFormat string) error {
 	switch outputFormat {
 	case "json":
-		listed := make([]core.CumulocitySession, 0, len(sessions))
+		// group is shown by the session picker of go-c8y-cli (c8y mcp serve)
+		type listedSession struct {
+			core.CumulocitySession
+			Group string `json:"group,omitempty"`
+		}
+		listed := make([]listedSession, 0, len(sessions))
 		for _, session := range sessions {
-			listed = append(listed, sessionWithoutSecrets(session))
+			s := listedSession{CumulocitySession: sessionWithoutSecrets(session), Group: session.VaultName}
+			if s.Group == "" {
+				s.Group = session.VaultID
+			}
+			listed = append(listed, s)
 		}
 		out, err := json.MarshalIndent(listed, "", "  ")
 		if err != nil {

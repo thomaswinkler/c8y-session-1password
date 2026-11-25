@@ -67,6 +67,7 @@ func TestOutputSessionList(t *testing.T) {
 			TOTPSecret: "secret-totp",
 			ItemID:     "item1",
 			VaultID:    "vault1",
+			VaultName:  "Employee",
 		},
 		{
 			Name:     "Test",
@@ -93,6 +94,19 @@ func TestOutputSessionList(t *testing.T) {
 		}
 		if sessions[0].Password != "secret-password" {
 			t.Errorf("original session was modified")
+		}
+	})
+
+	t.Run("json with vault as group", func(t *testing.T) {
+		out := captureStdout(t, func() error { return outputSessionList(sessions, "json") })
+		var listed []struct {
+			Group string `json:"group"`
+		}
+		if err := json.Unmarshal([]byte(out), &listed); err != nil {
+			t.Fatalf("output is not a JSON array: %v", err)
+		}
+		if len(listed) != 2 || listed[0].Group != "Employee" || listed[1].Group != "vault1" {
+			t.Errorf("expected groups Employee and vault1 (vault ID without vault name), got %+v", listed)
 		}
 	})
 
@@ -300,6 +314,39 @@ func TestOutputSessionReveal(t *testing.T) {
 			}
 			for _, session := range got {
 				assertSecrets(t, session, tt.expected)
+			}
+		})
+	}
+}
+
+func TestParseFilterArg(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		uriFlagSet bool
+		filter     string
+		uri        string
+		wantErr    bool
+	}{
+		{name: "no argument"},
+		{name: "filter", args: []string{"production"}, filter: "production"},
+		{name: "uri", args: []string{"op://vault1/item1"}, uri: "op://vault1/item1"},
+		{
+			name: "uri with target_url",
+			args: []string{"op://vault1/item1?target_url=https%3A%2F%2Fprod.example.com"},
+			uri:  "op://vault1/item1?target_url=https%3A%2F%2Fprod.example.com",
+		},
+		{name: "filter with --uri", args: []string{"production"}, uriFlagSet: true, filter: "production"},
+		{name: "uri with --uri", args: []string{"op://vault1/item1"}, uriFlagSet: true, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			filter, uri, err := parseFilterArg(tt.args, tt.uriFlagSet)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("expected error %v, got %v", tt.wantErr, err)
+			}
+			if filter != tt.filter || uri != tt.uri {
+				t.Errorf("expected filter %q and uri %q, got %q and %q", tt.filter, tt.uri, filter, uri)
 			}
 		})
 	}

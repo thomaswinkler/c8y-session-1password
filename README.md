@@ -30,6 +30,28 @@ set-session
 
 The provider uses your environment, for example `C8YOP_VAULT` and `C8YOP_TAGS`. Update the extension with `c8y extensions update session-1password`.
 
+#### Use with the c8y MCP server
+
+With go-c8y-cli 2.58.0 or later, the session picker of `c8y mcp serve` shows the sessions from 1Password, grouped by vault. When the token expires, the server gets the session from 1Password again, including a new TOTP code.
+
+If `onepassword` is your default provider (see above), the picker shows your session files and the sessions from 1Password, e.g. for Claude Code:
+
+```bash
+claude mcp add --scope user c8y -- c8y mcp serve
+```
+
+Use `--sessionProvider` to choose the sources and their order. `file` stands for your session files, and arguments after the provider name select the sessions from 1Password:
+
+```bash
+# only sessions from 1Password
+claude mcp add --scope user c8y -- c8y mcp serve --sessionProvider onepassword
+
+# sessions from the Employee vault, then the session files
+claude mcp add --scope user c8y -- c8y mcp serve --sessionProvider "onepassword --vault Employee,file"
+```
+
+Check which sessions the picker shows with `c8y sessions list --from-extension onepassword`.
+
 ### Using Go Install
 
 ```bash

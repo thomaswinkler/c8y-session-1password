@@ -12,4 +12,7 @@ sessionProviders:
     description: Select a session from 1Password
     # the session must include the password and TOTP secret, so c8y can log in
     exec: [--reveal]
+    # used by the session picker of c8y mcp serve. select gets the sessionUri as last argument
+    list: [--list]
+    select: [--reveal]
     format: json
