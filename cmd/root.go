@@ -41,7 +41,7 @@ var rootCmd = &cobra.Command{
 This command provides smart filtering and selection of sessions:
 - Shows interactive picker for multiple sessions matching the filter
 - Automatically returns the session when filter matches exactly one item
-- Filter matches against session names, item names, URLs, and usernames
+- Filter matches against session names, item names, URLs, and usernames, or the exact item ID
 - Support multiple urls per 1Password item showing one session per URL
 
 By default, sensitive information (passwords, TOTP secrets) is obfuscated in the output.
@@ -51,6 +51,15 @@ Direct item access:
 - Use --item flag for direct item retrieval by ID or name
 - Use --uri flag (or an op:// URI as argument) for direct item retrieval using op://vault/item format
 - Use --vault flag to limit searches to specific vault(s)
+
+Listing sessions:
+- Use --list to output all matching sessions without passwords and TOTP secrets, e.g. for the
+  session picker of "c8y mcp serve" (go-c8y-cli 2.58.0 or later)
+
+Session mode:
+- A "mode" field in the 1Password item sets the go-c8y-cli session mode: prod (read only),
+  qual (also create and update) or dev (also delete)
+- Use --mode to set the mode of the sessions whose item has no mode field
 
 Native messaging mode:
 - Activated when started by a Chrome extension (caller origin chrome-extension://<id>/ as first argument)

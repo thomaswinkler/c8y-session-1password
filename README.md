@@ -348,6 +348,7 @@ By default, all sensitive information (passwords, TOTP secrets) is obfuscated in
 - Passwords, TOTP codes, and TOTP secrets show as `***` by default
 - Use `--reveal` flag to show actual values when needed
 - `--list` never outputs passwords, TOTP codes, or TOTP secrets, also not with `--reveal`
+- Sessions are read only for AI agents using `c8y mcp serve`, unless their mode is `qual` or `dev`. Only use `dev` for development tenants, e.g. with a `mode` field in their items or `--mode dev` together with `--vault` for a development vault
 
 This approach prioritizes security by requiring explicit use of `--reveal` when you need to see sensitive credentials.
 
